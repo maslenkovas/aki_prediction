@@ -68,7 +68,7 @@ def save_checkpoint(save_path, model, optimizer, valid_loss):
     print(f'Model saved to ==> {save_path}')
 
 
-def load_checkpoint(load_path, model, optimizer):
+def load_checkpoint(load_path, model, optimizer, device):
 
     if load_path==None:
         return
@@ -261,7 +261,7 @@ def train(model,
           embedding_size,
           device='cpu',
           num_epochs=2,
-          epoch_patience=5,
+          epoch_patience=10,
           best_valid_loss = float("Inf"),
           dimension=128,
           save_model=True,
@@ -284,7 +284,9 @@ def train(model,
             criterion = ContrastiveLoss(batch_size=batch_size, device=device)
 
             for  (tensor_demo, tensor_med, tensor_vitals, tensor_labs), tensor_labels in train_loader:
-                  print(f'Step {train_step}/{total_train_steps}')
+                  if train_step % 100==0:
+                    print(f'Step {train_step}/{total_train_steps}')
+
                   d = 0
                   
             
@@ -342,10 +344,13 @@ def train(model,
             
             # checkpoint
             if best_valid_loss > epoch_average_val_loss and save_model:
-                  best_valid_loss = epoch_average_val_loss
-                  save_checkpoint(file_path + '/model.pt', model, optimizer, best_valid_loss)
+                print(f'Validation loss decreased {best_valid_loss}==>{epoch_average_val_loss}')
+                best_valid_loss = epoch_average_val_loss
+                save_checkpoint(file_path + '/model.pt', model, optimizer, best_valid_loss)
+                wandb.save(file_path + '/model.pt')
+                stop_training = 0
             else:
-                  stop_training +=1
+                stop_training +=1
             
             if stop_training == epoch_patience:
                   break
@@ -353,7 +358,7 @@ def train(model,
       print('Finished training!')
 
 
-def main(project_name, num_epochs, max_length, pred_window, max_day, drop=0.1, embedding_size=200, min_frequency=1, BATCH_SIZE=16, small_dataset=True, LR=0.00001, save_model=False, use_gpu=True, saving_folder_name=None, log_results=False):
+def main(project_name, num_epochs, max_length, pred_window, max_day, PRETRAINED_PATH=None, drop=0.1, temperature=0.5, embedding_size=200, min_frequency=1, BATCH_SIZE=16, small_dataset=True, LR=0.000005, save_model=False, use_gpu=True, saving_folder_name=None, log_results=False):
     
     if use_gpu:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -410,9 +415,15 @@ def main(project_name, num_epochs, max_length, pred_window, max_day, drop=0.1, e
     print('DATA SHAPES: ')
     print('train data shape: ', len(train_loader)*BATCH_SIZE)
     print('val data shape: ', len(val_loader)*BATCH_SIZE)
-
+    
     model = EHR_model(embedding_size=embedding_size, vocab_size=vocab_size, max_length=max_length, pred_window=pred_window, max_day=max_day, drop=0.1).to(device)
     optimizer = optim.Adam(model.parameters(), lr=LR)
+    # Decay LR by a factor of 0.1 every 7 epochs
+    # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+
+    if PRETRAINED_PATH is not None:
+        load_checkpoint(PRETRAINED_PATH, model, optimizer, device=device)
+    
 
     train_params = {'model':model,
                     'optimizer':optimizer,
@@ -431,7 +442,7 @@ def main(project_name, num_epochs, max_length, pred_window, max_day, drop=0.1, e
     num_samples = (len(train_loader)+len(val_loader))*BATCH_SIZE // 1000
 
     if saving_folder_name is None:
-        saving_folder_name = 'CL_FC1_' + str(num_samples) + 'k' + '_lr'+ str(LR) + '_Adam'
+        saving_folder_name = 'CL_FC1' + '_bs' + str(BATCH_SIZE) +'_' + str(num_samples) + 'k' + '_lr'+ str(LR) + '_Adam' + '_temp' + str(temperature)
     file_path = destination_folder + saving_folder_name
     train_params['file_path'] = file_path
 
@@ -441,10 +452,12 @@ def main(project_name, num_epochs, max_length, pred_window, max_day, drop=0.1, e
         
     run_name = saving_folder_name
 
-    args = {'optimizer':optimizer, 'LR':LR, 'min_frequency':min_frequency, 'dropout':drop, 'vocab_size':vocab_size, 'embedding_size':embedding_size, 'pretrained':'FC1'}
+    args = {'optimizer':optimizer, 'LR':LR, 'min_frequency':min_frequency, 'dropout':drop, 'vocab_size':vocab_size, 'embedding_size':embedding_size, 'pretrained':'FC1', 'temperature':temperature, 'batch_size':BATCH_SIZE}
 
     if log_results:
-        wandb.init(project=project_name, name=run_name, mode='online')
+        run_id = wandb.util.generate_id()
+        wandb.init(project=project_name, name=run_name, mode='online', config=args, id=run_id, resume='allow')
+        print('Run id is: ', run_id)
         train(**train_params)
         wandb.finish()
     else:
@@ -452,4 +465,18 @@ def main(project_name, num_epochs, max_length, pred_window, max_day, drop=0.1, e
 
 
 
-main(project_name='Contrastive-loss-pretraining', saving_folder_name=None, num_epochs=20, embedding_size=200, max_length=max_length, pred_window=1, max_day=7, min_frequency=1, BATCH_SIZE=128, small_dataset=False, LR=0.00001, save_model=True, use_gpu=True, log_results=True)
+# main(project_name='Contrastive-loss-pretraining', saving_folder_name=None, num_epochs=20, embedding_size=200, max_length=max_length, pred_window=1, max_day=7, min_frequency=1, BATCH_SIZE=128, small_dataset=False, LR=0.00001, save_model=True, use_gpu=True, log_results=True)
+
+#  28722
+# main(project_name='Contrastive-loss-pretraining', saving_folder_name=None, num_epochs=20, temperature=0.05, embedding_size=200, max_length=max_length, pred_window=1, max_day=7, min_frequency=1, BATCH_SIZE=128, small_dataset=False, LR=0.00001, save_model=True, use_gpu=True, log_results=True)
+
+# 28723
+# main(project_name='Contrastive-loss-pretraining', saving_folder_name=None, num_epochs=20, temperature=0.01, embedding_size=200, max_length=max_length, pred_window=1, max_day=7, min_frequency=1, BATCH_SIZE=128, small_dataset=False, LR=0.00001, save_model=True, use_gpu=True, log_results=True)
+
+# 28724
+# main(project_name='Contrastive-loss-pretraining', saving_folder_name=None, num_epochs=20, temperature=0.1, embedding_size=200, max_length=max_length, pred_window=1, max_day=7, min_frequency=1, BATCH_SIZE=128, small_dataset=False, LR=0.00001, save_model=True, use_gpu=True, log_results=True)
+
+
+#  29402,  29763 (continue training)
+PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/fc1/CL_FC1_bs128_142k_lr1e-05_Adam_temp0.05/model.pt'
+main(project_name='Contrastive-loss-pretraining', saving_folder_name='CL_FC1_bs128_142k_lr1e-05_Adam_temp0.05', num_epochs=27, temperature=0.05, embedding_size=200, max_length=max_length, pred_window=1, max_day=7, min_frequency=1, BATCH_SIZE=512, small_dataset=False, LR=0.00001, save_model=True, use_gpu=True, log_results=True, PRETRAINED_PATH=PRETRAINED_PATH)

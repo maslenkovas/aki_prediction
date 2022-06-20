@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim import lr_scheduler
 from torch.utils.data import Dataset, DataLoader
 
 
@@ -467,7 +468,8 @@ def train(model,
           best_valid_loss = float("Inf"),
           dimension=128,
           epoch_patience=6,
-          threshold=0.5):
+          threshold=0.5,
+          scheduler=None):
     
     # initialize running values
     running_loss = 0.0
@@ -528,6 +530,8 @@ def train(model,
             
         # calculate accuracy
         epoch_train_accuracy = np.round(np.sum(correct_preds) / len(correct_preds), 5)
+        if scheduler is not None:
+            scheduler.step()
 
 
 
@@ -639,7 +643,7 @@ def load_checkpoint(load_path, model, optimizer, device):
 
 ######################## MAIN ###############################
 
-def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='test', max_days=7, pred_window=1, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128, num_epochs=50):
+def main(saving_folder_name=None, PRETRAINED_PATH=None, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='test', max_days=7, pred_window=1, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128, num_epochs=50):
     # define the device
     if use_gpu:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -651,8 +655,9 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_
     PKL_PATH = CURR_PATH+'/pickles/'
     DF_PATH = CURR_PATH +'/dataframes/'
     TXT_DIR_TRAIN = CURR_PATH + '/txt_files/train'
-    destination_folder = CURR_PATH + '/training'
-    PRETRAINED_PATH = CURR_PATH + '/pretraining/embeddings/CL_EMB_2409k_lr1e-05_Adam/model.pt'
+    destination_folder = CURR_PATH + '/training/'
+    if PRETRAINED_PATH==None:
+        PRETRAINED_PATH = CURR_PATH + '/pretraining/embeddings/CL_EMB_2409k_lr1e-05_Adam/model.pt'
 
     # Training the tokenizer
     if exists(CURR_PATH + '/tokenizer.json'):
@@ -724,26 +729,30 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_
     
     model = LSTM_model(max_length=max_length, H=128, max_day=max_days, pred_window=pred_window, vocab_size=vocab_size).to(device)
 
-    # pretrained_model = EHR_Embedding(embedding_size=embedding_size, vocab_size=vocab_size).to(device)
-    # pretrained_model.load_state_dict(torch.load(PRETRAINED_PATH, map_location=device)['model_state_dict'])
-    # model.embedding.weight.data = pretrained_model.embedding.weight.data
+    pretrained_model = EHR_Embedding(embedding_size=embedding_size, vocab_size=vocab_size).to(device)
+    pretrained_model.load_state_dict(torch.load(PRETRAINED_PATH, map_location=device)['model_state_dict'])
+    model.embedding.weight.data = pretrained_model.embedding.weight.data
+    print(f"Pretrained model loaded from <=== {PRETRAINED_PATH}")
 
     optimizer = optim.Adam(model.parameters(), lr=LR)
+    # Decay LR by a factor of 0.1 every 7 epochs
+    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=8, gamma=0.1)
 
     train_params = {
-                        'model':model,
-                        'device':device,
-                        'optimizer':optimizer,
-                        'criterion':'BCELoss',
-                        'train_loader':train_loader,
-                        'valid_loader':val_loader,
-                        'num_epochs':num_epochs, 
-                        'file_path':destination_folder,
-                        'best_valid_loss':float("Inf"),
-                        'dimension':128,
-                        'epoch_patience':5,
-                        'threshold':0.5
-                    }
+                    'model':model,
+                    'device':device,
+                    'optimizer':optimizer,
+                    'criterion':'BCELoss',
+                    'train_loader':train_loader,
+                    'valid_loader':val_loader,
+                    'num_epochs':num_epochs, 
+                    'file_path':destination_folder,
+                    'best_valid_loss':float("Inf"),
+                    'dimension':128,
+                    'epoch_patience':5,
+                    'threshold':0.5,
+                    'scheduler':exp_lr_scheduler
+                }
 
     if criterion=='BCEWithLogitsLoss': 
         #calculate weights
@@ -762,21 +771,23 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_
 
     # path for the model
     if saving_folder_name is None:
-        saving_folder_name = '/FT_NO_PRETRAINING_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_' + str_weights + '_lr'+ str(LR) + '_Adam_' + 'mf' +str(min_frequency) + '_h'+str(hidden_size) + '_days' + str(max_days) + '_pw'+str(pred_window)
+        saving_folder_name = 'FT_NO_PRETRAINING_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_' + str_weights + '_lr'+ str(LR) + '_Adam_' + 'mf' +str(min_frequency) + '_h'+str(hidden_size) + '_days' + str(max_days) + '_pw'+str(pred_window)
     file_path = destination_folder + saving_folder_name
     train_params['file_path'] = file_path
 
     print(f'\n\nMODEL PATH: {file_path}')
     if not os.path.exists(file_path):
         os.makedirs(file_path)
-    run_name = str(BATCH_SIZE)+'bs' + saving_folder_name
+    run_name = saving_folder_name
 
     # wandb setup
     os.environ['WANDB_API_KEY'] = '8e859a0fc58f296096842a367ca532717d3b4059'    
-    wandb.init(project=project_name, name=run_name, mode="online")
-    args = {'optimizer':optimizer, 'criterion':'BCELoss', 'max_days':max_days, 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'FT'}
+    args = {'optimizer':'Adam', 'criterion':'BCELoss', 'max_days':max_days, 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'FT'}
+    wandb.init(project=project_name, name=run_name, mode="online", config=args)
     config = wandb.config
     config.update(args)
+    run_id = wandb.util.generate_id()
+    print('run is is: ', run_id)
 
     # training
     train(**train_params)
@@ -804,3 +815,25 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_
 
 # no pretraining , pw=3
 # main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=9, pred_window=3, BATCH_SIZE=40, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=30)
+
+# 28699, 28886, 28907
+# PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/embeddings/CL_EMB_2002409k_lr1e-05_Adam_temp0.05/model.pt'
+# main(saving_folder_name='FT_EMB_lr1e-5_Adam_mf1_h128_days7_pw1_temp0.05', PRETRAINED_PATH=PRETRAINED_PATH, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=7, pred_window=1, BATCH_SIZE=40, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=30)
+
+# 28713, 28887, 28908
+# PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/embeddings/CL_EMB200_bs64_2409k_lr1e-05_Adam_temp0.1/model.pt'
+# main(saving_folder_name='FT_EMB_lr1e-5_Adam_mf1_h128_days7_pw1_temp0.1', PRETRAINED_PATH=PRETRAINED_PATH, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=7, pred_window=1, BATCH_SIZE=40, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=30)
+
+
+# # 28910
+# PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/embeddings/CL_EMB_2002409k_lr1e-05_Adam_temp0.05/model.pt'
+# main(saving_folder_name='FT_EMB_lr1e-5_Adam_mf1_h128_days8_pw2_temp0.05', PRETRAINED_PATH=PRETRAINED_PATH, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=8, pred_window=2, BATCH_SIZE=128, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=30)
+
+# 28911
+# PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/embeddings/CL_EMB200_bs64_2409k_lr1e-05_Adam_temp0.1/model.pt'
+# main(saving_folder_name='FT_EMB_lr1e-5_Adam_mf1_h128_days8_pw2_temp0.1', PRETRAINED_PATH=PRETRAINED_PATH, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=8, pred_window=2, BATCH_SIZE=256, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=30)
+
+
+# 29401, 29422
+PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/embeddings/CL_EMB200_bs64_2409k_lr1e-05_Adam_temp0.1/model.pt'
+main(saving_folder_name='FT_EMB_lr1e-5_Adam_mf1_h128_days7_pw1_temp0.1', PRETRAINED_PATH=PRETRAINED_PATH, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=7, pred_window=1, BATCH_SIZE=256, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=30)

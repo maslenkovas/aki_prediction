@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim import lr_scheduler
 from torch.utils.data import Dataset, DataLoader
 
 # DATASET CLASS
@@ -488,7 +489,8 @@ def train(model,
           best_valid_loss = float("Inf"),
           dimension=128,
           epoch_patience=6,
-          threshold=0.5):
+          threshold=0.5,
+          scheduler=None):
     
     # initialize running values
     running_loss = 0.0
@@ -549,7 +551,8 @@ def train(model,
             
         # calculate accuracy
         epoch_train_accuracy = np.round(np.sum(correct_preds) / len(correct_preds), 5)
-
+        if scheduler is not None:
+            scheduler.step()
 
 
         model.eval()
@@ -660,7 +663,7 @@ def load_checkpoint(load_path, model, optimizer, device):
 
 ######################## MAIN ###############################
 
-def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='test', max_days=7, pred_window=1, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128, num_epochs=50, wandb_mode='online'):
+def main(PRETRAINED_PATH, saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='test', max_days=7, pred_window=1, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128, num_epochs=50, wandb_mode='online'):
     # define the device
     if use_gpu:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -672,9 +675,8 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_
     PKL_PATH = CURR_PATH+'/pickles/'
     DF_PATH = CURR_PATH +'/dataframes/'
     TXT_DIR_TRAIN = CURR_PATH + '/txt_files/train'
-    destination_folder = CURR_PATH + '/training'
-    PRETRAINED_PATH = CURR_PATH + '/pretraining/fc1/CL_FC1_142k_lr1e-05_Adam/model.pt'
-
+    destination_folder = CURR_PATH + '/training/'
+    
     # Training the tokenizer
     if exists(CURR_PATH + '/tokenizer.json'):
         tokenizer = Tokenizer.from_file(CURR_PATH + '/tokenizer.json')
@@ -746,11 +748,16 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_
     pretrained_model.load_state_dict(torch.load(PRETRAINED_PATH, map_location=device)['model_state_dict'])
     pretrained_model.projection = Identity()
     pretrained_model.drop = Identity()
+    print(f"Pretrained model loaded from <=== {PRETRAINED_PATH}")
 
     # initialize the fine-tuning model
     model = LSTM_model(max_length=max_length, H=128, max_day=max_days, pred_window=pred_window, vocab_size=vocab_size, pretrained_model=pretrained_model).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=LR)
+
+    # Decay LR by a factor of 0.1 every 7 epochs
+    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+
 
     train_params = {
                         'model':model,
@@ -764,7 +771,8 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_
                         'best_valid_loss':float("Inf"),
                         'dimension':128,
                         'epoch_patience':5,
-                        'threshold':0.5
+                        'threshold':0.5,
+                        'scheduler':exp_lr_scheduler
                     }
 
     if criterion=='BCEWithLogitsLoss': 
@@ -778,13 +786,13 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_
         str_weights = str(np.round(pos_weight[0].item(), 2))
     elif criterion=='BCELoss':
         # path for the model
-        str_weights = 'no_weights'
+        str_weights = ''
     else:
         print('Error: use BCELoss or BCEWithLogitsLoss. ')
 
     # path for the model
     if saving_folder_name is None:
-        saving_folder_name = '/FT_VEC_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_' + str_weights + '_lr'+ str(LR) + '_Adam_' + 'mf' +str(min_frequency) + '_h'+str(hidden_size) + '_days' + str(max_days) + '_pw'+str(pred_window)
+        saving_folder_name = 'FT_VEC_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_' + str_weights + '_lr'+ str(LR) + '_Adam_' + 'mf' +str(min_frequency) + '_h'+str(hidden_size) + '_days' + str(max_days) + '_pw'+str(pred_window)
     file_path = destination_folder + saving_folder_name
     train_params['file_path'] = file_path
 
@@ -823,5 +831,23 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_
 #27690
 # main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=9, pred_window=3, BATCH_SIZE=40, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=20, wandb_mode='online')
 
-# 27691
-main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=7, pred_window=3, BATCH_SIZE=40, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=20, wandb_mode='online')
+# # 27691
+# main(saving_folder_name=None, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=7, pred_window=3, BATCH_SIZE=40, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=20, wandb_mode='online')
+
+# # 28915 temp=0.05, pw=1
+# PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/fc1/CL_FC1_bs128_142k_lr1e-05_Adam_temp0.05/model.pt'
+# main(PRETRAINED_PATH=PRETRAINED_PATH, saving_folder_name='FT_VEC_lr1e-5_Adam_mf1_h128_days7_pw1_temp0.05', criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=7, pred_window=1, BATCH_SIZE=256, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=20, wandb_mode='online')
+
+# # 28916 temp=0.01, pw=1
+# PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/fc1/CL_FC1_bs128_142k_lr1e-05_Adam_temp0.01/model.pt'
+# main(PRETRAINED_PATH=PRETRAINED_PATH, saving_folder_name='FT_VEC_lr1e-5_Adam_mf1_h128_days7_pw1_temp0.01', criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=7, pred_window=1, BATCH_SIZE=256, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=20, wandb_mode='online')
+
+# # 28917 temp=0.1, pw=1
+# PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/fc1/CL_FC1_bs128_142k_lr1e-05_Adam_temp0.1/model.pt'
+# main(PRETRAINED_PATH=PRETRAINED_PATH, saving_folder_name='FT_VEC_lr1e-5_Adam_mf1_h128_days7_pw1_temp0.1', criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=7, pred_window=1, BATCH_SIZE=512, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=20, wandb_mode='online')
+
+
+# # 28918  temp=0.05, pw=2
+# 28936 with scheduler
+PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/fc1/CL_FC1_bs128_142k_lr1e-05_Adam_temp0.05/model.pt'
+main(PRETRAINED_PATH=PRETRAINED_PATH, saving_folder_name='FT_VEC_lr1e-5_Adam_mf1_h128_days8_pw2_temp0.05', criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='lstm-project', max_days=8, pred_window=2, BATCH_SIZE=800, LR=0.00001, min_frequency=1, hidden_size=128,  num_epochs=20, wandb_mode='online')

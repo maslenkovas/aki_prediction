@@ -11,6 +11,7 @@ from tokenizers.trainers import BpeTrainer
 from tokenizers.pre_tokenizers import Whitespace
 import glob
 import os
+from os.path import exists
 import pickle5 as pickle
 import wandb
 
@@ -18,7 +19,7 @@ import wandb
 
 # CLASSES
 class ContrastiveLoss(nn.Module):
-    def __init__(self, batch_size, device, temperature=0.5):
+    def __init__(self, batch_size, device, temperature):
         super().__init__()
         self.batch_size = batch_size
         self.device = device
@@ -206,7 +207,7 @@ def save_checkpoint(save_path, model, optimizer, valid_loss):
     print(f'Model saved to ==> {save_path}')
 
 
-def load_checkpoint(load_path, model, optimizer):
+def load_checkpoint(load_path, model, optimizer, device):
 
     if load_path==None:
         return
@@ -229,6 +230,7 @@ def train(model,
           batch_size,
           file_path,
           embedding_size,
+          temperature,
           device='cpu',
           num_epochs=2,
           epoch_patience=8,
@@ -251,7 +253,7 @@ def train(model,
             model.train()
             train_step = 1
             print(f'Epoch {epoch+1}/{num_epochs} training..')
-            criterion = ContrastiveLoss(batch_size=batch_size, device=device)
+            criterion = ContrastiveLoss(batch_size=batch_size, device=device, temperature=temperature)
 
             for X, Y in train_loader:
                 if train_step % 10000==0:
@@ -266,7 +268,7 @@ def train(model,
                                         
                 if train_step >= total_train_steps:
                     new_batch_size = projectionX[0].size()[0]
-                    criterion = ContrastiveLoss(batch_size=new_batch_size, device=device)
+                    criterion = ContrastiveLoss(batch_size=new_batch_size, device=device, temperature=temperature)
 
                 loss0 = criterion(projectionX[0].type(torch.float32), projectionY[0].type(torch.float32))
                 loss1 = criterion(projectionX[1].type(torch.float32), projectionY[1].type(torch.float32))
@@ -288,7 +290,7 @@ def train(model,
             model.eval()
             val_step = 1
             print(f"Validation started..")
-            criterion = ContrastiveLoss(batch_size=batch_size, device=device)
+            criterion = ContrastiveLoss(batch_size=batch_size, device=device, temperature=temperature)
             with torch.no_grad():
                   for X, Y in valid_loader:
                         embX, projectionX, embY, projectionY = model(X['tensor_demo'].to(device),
@@ -298,7 +300,7 @@ def train(model,
 
                         if val_step >= total_val_steps:
                               new_batch_size = projectionX[0].size()[0]
-                              criterion = ContrastiveLoss(batch_size=new_batch_size, device=device)
+                              criterion = ContrastiveLoss(batch_size=new_batch_size, device=device, temperature=temperature)
                                                
                         loss0 = criterion(projectionX[0].type(torch.float32), projectionY[0].type(torch.float32))
                         loss1 = criterion(projectionX[1].type(torch.float32), projectionY[1].type(torch.float32))
@@ -337,7 +339,7 @@ def train(model,
 import os
 import pickle5 as pickle
 
-def main(project_name, num_epochs, drop=0.1, embedding_size=150, min_frequency=1, BATCH_SIZE=16, small_dataset=True, LR=0.00001, save_model=False, use_gpu=True, saving_folder_name=None, log_results=False):
+def main(project_name, num_epochs, PRETRAINED_PATH=None, drop=0.1, temperature=0.5, embedding_size=150, min_frequency=1, BATCH_SIZE=16, small_dataset=True, LR=0.00001, save_model=False, use_gpu=True, saving_folder_name=None, log_results=False):
     
     if use_gpu:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -354,13 +356,15 @@ def main(project_name, num_epochs, drop=0.1, embedding_size=150, min_frequency=1
 
 
     # Training the tokenizer
-    os.environ["TOKENIZERS_PARALLELISM"] = "true"
-    tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
-    tokenizer.pre_tokenizer = Whitespace()
-    trainer = BpeTrainer(special_tokens=["[PAD]", "[UNK]"], min_frequency=min_frequency)
-    files = glob.glob(TXT_DIR_TRAIN+'/*')
-    tokenizer.train(files, trainer)
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    if exists(CURR_PATH + '/tokenizer.json'):
+        tokenizer = Tokenizer.from_file(CURR_PATH + '/tokenizer.json')
+    else:
+        tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
+        tokenizer.pre_tokenizer = Whitespace()
+        trainer = BpeTrainer(special_tokens=["[PAD]", "[UNK]"], min_frequency=1)
+        files = glob.glob(TXT_DIR_TRAIN+'/*')
+        tokenizer.train(files, trainer)
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     # variables for classes
     max_length = {'demographics':5, 'lab_tests':400, 'vitals':200, 'medications':255}
@@ -396,6 +400,9 @@ def main(project_name, num_epochs, drop=0.1, embedding_size=150, min_frequency=1
     model = EHR_Embedding(vocab_size=vocab_size, embedding_size=embedding_size, drop=0.1).to(device)
     optimizer = optim.Adam(model.parameters(), lr=LR)
 
+    if PRETRAINED_PATH is not None:
+        load_checkpoint(PRETRAINED_PATH, model, optimizer, device=device)
+
     train_params = {'model':model,
                     'optimizer':optimizer,
                     'train_loader':train_loader,
@@ -406,14 +413,15 @@ def main(project_name, num_epochs, drop=0.1, embedding_size=150, min_frequency=1
                     'num_epochs':num_epochs,
                     'device':device,
                     'save_model':save_model,
-                    'log_results':log_results
+                    'log_results':log_results,
+                    'temperature':temperature
                     
     }
 
     num_samples = (len(train_loader)+len(val_loader))*BATCH_SIZE // 1000
 
     if saving_folder_name is None:
-        saving_folder_name = 'CL_EMB_' + str(num_samples) + 'k' + '_lr'+ str(LR) + '_Adam'
+        saving_folder_name = 'CL_EMB' + str(embedding_size) + '_bs' + str(BATCH_SIZE) +'_' + str(num_samples) + 'k' + '_lr'+ str(LR) + '_Adam' + '_temp' + str(temperature)
     file_path = destination_folder + saving_folder_name
     train_params['file_path'] = file_path
 
@@ -423,17 +431,65 @@ def main(project_name, num_epochs, drop=0.1, embedding_size=150, min_frequency=1
         
     run_name = saving_folder_name
 
-    args = {'optimizer':optimizer, 'LR':LR, 'min_frequency':min_frequency, 'dropout':drop, 'vocab_size':vocab_size, 'embedding_size':embedding_size, 'pretrained':'embeddings'}
+    args = {'optimizer':'Adam', 'LR':LR, 'min_frequency':min_frequency, 'dropout':drop, 'vocab_size':vocab_size, 'embedding_size':embedding_size, 'pretrained':'embeddings', 'temperature':temperature, 'batch_size':BATCH_SIZE}
 
     if log_results:
-        wandb.init(project=project_name, name=run_name)
+        wandb.init(project=project_name, name=run_name, config=args)
+        run_id = wandb.util.generate_id()
+        print('Run id is: ', run_id)
+
         train(**train_params)
         wandb.finish()
     else:
         train(**train_params)
 
-# 26775
+# test
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, BATCH_SIZE=128, small_dataset=True, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=False, log_results=False)
+
+# 26775,    temp=0.5, batch_size=32
 # main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, BATCH_SIZE=32, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
 
+# 28564  temp=0.5, batch_size=50
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.5, BATCH_SIZE=50, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+# 28566  temp=0.5, batch_size=64
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.5, BATCH_SIZE=64, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+
+
+# 28555 temp=0.05, batch_size=32
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.05, BATCH_SIZE=32, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+# 28560 temp=0.05,  batch_size=50
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.05, BATCH_SIZE=50, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+# 28561 temp=0.05,  batch_size=64
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.05, BATCH_SIZE=64, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+
+
+# 28567 temp=0.01, batch_size=32
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.01, BATCH_SIZE=32, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+# 28568 temp=0.01,  batch_size=50
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.01, BATCH_SIZE=50, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+# 28569 temp=0.01,  batch_size=64
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.01, BATCH_SIZE=64, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+
+
+
+# 28570 temp=0.1, batch_size=32
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.1, BATCH_SIZE=32, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+# 28571 temp=0.1,  batch_size=50
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.1, BATCH_SIZE=50, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+# 28572 temp=0.1,  batch_size=64
+# main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, temperature=0.1, BATCH_SIZE=64, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=True, log_results=True)
+
+
 # 
-main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, BATCH_SIZE=128, small_dataset=True, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=False, log_results=False)
+PRETRAINED_PATH = '/home/svetlana.maslenkova/LSTM/pretraining/embeddings/CL_EMB200_bs64_2409k_lr1e-05_Adam_temp0.1/model.pt'
+main(project_name='Contrastive-loss-pretraining', num_epochs=30, PRETRAINED_PATH=PRETRAINED_PATH, embedding_size=200, min_frequency=1, temperature=0.1, BATCH_SIZE=64, small_dataset=False, LR=0.00001, save_model=True, saving_folder_name='CL_EMB200_bs64_2409k_lr1e-05_Adam_temp0.1', use_gpu=True, log_results=True)
