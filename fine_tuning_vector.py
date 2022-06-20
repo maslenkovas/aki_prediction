@@ -802,11 +802,11 @@ def main(PRETRAINED_PATH, saving_folder_name=None, criterion='BCELoss', small_da
     run_name = str(BATCH_SIZE)+'bs' + saving_folder_name
 
     # wandb setup
-    os.environ['WANDB_API_KEY'] = '8e859a0fc58f296096842a367ca532717d3b4059'    
-    wandb.init(project=project_name, name=run_name, mode=wandb_mode)
+    os.environ['WANDB_API_KEY'] = '8e859a0fc58f296096842a367ca532717d3b4059' 
+    run_id = wandb.util.generate_id()   
     args = {'optimizer':optimizer, 'criterion':'BCELoss', 'max_days':max_days, 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'FT'}
-    config = wandb.config
-    config.update(args)
+    wandb.init(project=project_name, name=run_name, mode=wandb_mode, config=args, id=run_id, resume='allow')
+    print('Run id is: ', run_id)
 
     # training
     train(**train_params)

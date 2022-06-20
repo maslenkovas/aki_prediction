@@ -643,7 +643,7 @@ def load_checkpoint(load_path, model, optimizer, device):
 
 ######################## MAIN ###############################
 
-def main(saving_folder_name=None, PRETRAINED_PATH=None, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='test', max_days=7, pred_window=1, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128, num_epochs=50):
+def main(saving_folder_name=None, PRETRAINED_PATH=None, criterion='BCELoss', small_dataset=False, use_gpu=True, project_name='test', max_days=7, pred_window=1, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128, num_epochs=50, wandb_mode='online'):
     # define the device
     if use_gpu:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -782,12 +782,10 @@ def main(saving_folder_name=None, PRETRAINED_PATH=None, criterion='BCELoss', sma
 
     # wandb setup
     os.environ['WANDB_API_KEY'] = '8e859a0fc58f296096842a367ca532717d3b4059'    
-    args = {'optimizer':'Adam', 'criterion':'BCELoss', 'max_days':max_days, 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'FT'}
-    wandb.init(project=project_name, name=run_name, mode="online", config=args)
-    config = wandb.config
-    config.update(args)
-    run_id = wandb.util.generate_id()
-    print('run is is: ', run_id)
+    run_id = wandb.util.generate_id()   
+    args = {'optimizer':optimizer, 'criterion':'BCELoss', 'max_days':max_days, 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'FT'}
+    wandb.init(project=project_name, name=run_name, mode=wandb_mode, config=args, id=run_id, resume='allow')
+    print('Run id is: ', run_id)
 
     # training
     train(**train_params)

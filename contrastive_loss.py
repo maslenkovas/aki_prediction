@@ -430,13 +430,12 @@ def main(project_name, num_epochs, PRETRAINED_PATH=None, drop=0.1, temperature=0
         os.makedirs(file_path)
         
     run_name = saving_folder_name
-
     args = {'optimizer':'Adam', 'LR':LR, 'min_frequency':min_frequency, 'dropout':drop, 'vocab_size':vocab_size, 'embedding_size':embedding_size, 'pretrained':'embeddings', 'temperature':temperature, 'batch_size':BATCH_SIZE}
 
     if log_results:
-        wandb.init(project=project_name, name=run_name, config=args)
         run_id = wandb.util.generate_id()
         print('Run id is: ', run_id)
+        wandb.init(project=project_name, name=run_name, config=args, id=run_id, resume='allow')
 
         train(**train_params)
         wandb.finish()
