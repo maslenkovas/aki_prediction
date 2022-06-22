@@ -467,8 +467,35 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     with open(DF_PATH + 'pid_test_df_finetuning.pkl', 'rb') as f:
         pid_test_df = pickle.load(f)
 
-    # print('filtering admissions..')
+    print('filtering admissions..')
     # filter the admissions
+    train_admissions = []
+    train_admissions = []
+    for adm in pid_train_df.hadm_id.unique():   
+        if ({1,2,3,4}.issubset(set(pid_train_df[pid_train_df.hadm_id==adm].days.values[0])) or \
+            {-1,0,1,2}.issubset(set(pid_train_df[pid_train_df.hadm_id==adm].days.values[0]))or \
+                {0,1,2,3}.issubset(set(pid_train_df[pid_train_df.hadm_id==adm].days.values[0]))) and \
+            (len(pid_train_df[pid_train_df.hadm_id==adm].days.values[0])>3) and\
+                sum(pid_train_df[pid_train_df.hadm_id==adm].aki_status_in_visit.values[0][:2])==0:
+            train_admissions.append(adm)
+
+    val_admissions = []
+    for adm in pid_val_df.hadm_id.unique():   
+        if ({1,2,3,4}.issubset(set(pid_val_df[pid_val_df.hadm_id==adm].days.values[0])) or \
+            {-1,0,1,2}.issubset(set(pid_val_df[pid_val_df.hadm_id==adm].days.values[0]))or \
+                {0,1,2,3}.issubset(set(pid_val_df[pid_val_df.hadm_id==adm].days.values[0]))) and \
+            (len(pid_val_df[pid_val_df.hadm_id==adm].days.values[0])>3) and\
+                sum(pid_val_df[pid_val_df.hadm_id==adm].aki_status_in_visit.values[0][:2])==0:
+            val_admissions.append(adm)
+
+    test_admissions = []
+    for adm in pid_test_df.hadm_id.unique():   
+        if ({1,2,3,4}.issubset(set(pid_test_df[pid_test_df.hadm_id==adm].days.values[0])) or \
+            {-1,0,1,2}.issubset(set(pid_test_df[pid_test_df.hadm_id==adm].days.values[0]))or \
+                {0,1,2,3}.issubset(set(pid_test_df[pid_test_df.hadm_id==adm].days.values[0]))) and \
+            (len(pid_test_df[pid_test_df.hadm_id==adm].days.values[0])>3) and\
+                sum(pid_test_df[pid_test_df.hadm_id==adm].aki_status_in_visit.values[0][:2])==0:
+            test_admissions.append(adm)
 
     pid_train_df = pid_train_df[pid_train_df.hadm_id.isin(train_admissions)]
     pid_val_df = pid_val_df[pid_val_df.hadm_id.isin(val_admissions)]
