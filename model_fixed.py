@@ -535,7 +535,8 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
 
     optimizer = optim.Adam(model.parameters(), lr=LR)
     # Decay LR by a factor of 0.1 every 7 epochs
-    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=45, gamma=0.1)
+    exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[15, 50, 80], gamma=0.1)
 
     train_params = {
                     'model':model,
@@ -548,7 +549,7 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
                     'file_path':destination_folder,
                     'best_valid_loss':float("Inf"),
                     'dimension':128,
-                    'epoch_patience':5,
+                    'epoch_patience':10,
                     'threshold':0.5,
                     'scheduler':exp_lr_scheduler
                 }
@@ -596,6 +597,12 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
 PRETRAINED_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/training/FX_NO_PRETRAINING_10k_lr0.001_h128_pw2_ow3/model.pt'
 run_id = None
 
+# # 30249 with StepLR
 main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=800, LR=1e-05,\
-         min_frequency=1, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=1800, LR=1e-04,\
+         min_frequency=1, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+
+# # 30257 with MultiStepLR
+# main(saving_folder_name='FX_NO_PRETRAINING_11k_lr0.0001_h128_pw2_ow3_MiltiStepLR', criterion='BCELoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=1600, LR=1e-04,\
+#          min_frequency=1, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
