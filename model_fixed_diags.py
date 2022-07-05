@@ -526,10 +526,11 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
         model.embedding.weight.data = model.embedding.weight.data
         print(f"Pretrained model loaded from <=== {PRETRAINED_PATH}")
 
-    optimizer = optim.Adam(model.parameters(), lr=LR)
+    weight_decay = 0.01
+    optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=weight_decay)
     # Decay LR by a factor of 0.1 every 7 epochs
     # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-    exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[15,50, 80], gamma=0.5)
+    exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[15,50, 80], gamma=0.1)
     # exp_lr_scheduler = None
 
     train_params = {
@@ -570,7 +571,7 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     else:
         resume = 'must'
         
-    args = {'optimizer':optimizer, 'criterion':'BCELoss', 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'no_pretraining'}
+    args = {'optimizer':optimizer, 'criterion':'BCELoss', 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'no_pretraining', 'weight_decay':weight_decay}
     wandb.init(project=project_name, name=run_name, mode=wandb_mode, config=args, id=run_id, resume=resume)
     print('Run id is: ', run_id)
 
@@ -641,5 +642,5 @@ print('test_admissions', len(test_admissions))
 ########################################### RUNs ############################################
 
 main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=1024, LR=1e-05,\
+     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=1024, LR=1e-04,\
          min_frequency=3, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
