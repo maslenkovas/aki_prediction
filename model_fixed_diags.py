@@ -528,7 +528,9 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
 
     optimizer = optim.Adam(model.parameters(), lr=LR)
     # Decay LR by a factor of 0.1 every 7 epochs
-    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[15,50, 80], gamma=0.5)
+    # exp_lr_scheduler = None
 
     train_params = {
                     'model':model,
@@ -541,14 +543,14 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
                     'file_path':destination_folder,
                     'best_valid_loss':float("Inf"),
                     'dimension':128,
-                    'epoch_patience':5,
+                    'epoch_patience':10,
                     'threshold':0.5,
                     'scheduler':exp_lr_scheduler
                 }
 
     # path for the model
     if saving_folder_name is None:
-        saving_folder_name = 'FX_NO_PRETRAINING_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_'  \
+        saving_folder_name = 'FX_NO_PRETRAINING_DIAGS_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_'  \
             + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window)
     
     file_path = destination_folder + saving_folder_name
@@ -638,6 +640,6 @@ print('test_admissions', len(test_admissions))
 
 ########################################### RUNs ############################################
 
-main(saving_folder_name='test_model', criterion='BCELoss', small_dataset=False,\
-     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=128, LR=1e-05,\
-         min_frequency=3, hidden_size=128, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
+     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=1024, LR=1e-05,\
+         min_frequency=3, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
