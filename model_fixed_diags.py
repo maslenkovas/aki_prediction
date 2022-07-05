@@ -34,15 +34,14 @@ from torch.utils.data import Dataset, DataLoader
 
 
 
-max_length = {'demographics':5, 'lab_tests':400, 'vitals':200, 'medications':255}
 class MyDataset(Dataset):
 
-    def __init__(self, df, tokenizer, max_length=400, pred_window=2, observing_window=3):
+    def __init__(self, df, tokenizer, max_length_day=400, pred_window=2, observing_window=3):
         self.df = df
         self.tokenizer = tokenizer
         self.observing_window = observing_window
         self.pred_window = pred_window
-        self.max_length = max_length
+        self.max_length_day = max_length_day
         self.max_length_diags = 30
 
         
@@ -55,7 +54,12 @@ class MyDataset(Dataset):
     
     def tokenize(self, text, max_length):
         
-        output = self.tokenizer.encode(text)
+        try:
+            output = self.tokenizer.encode(text)
+        except:
+            print(type(text), text, max_length)
+            output = self.tokenizer.encode(text)
+
         # padding and truncation
         if len(output.ids) < max_length:
             len_missing_token = max_length - len(output.ids)
@@ -69,40 +73,45 @@ class MyDataset(Dataset):
         return token_output
 
     def make_matrices(self, idx):
+        
         day_info = self.df.days_in_visit.values[idx]
-        diagnoses = self.df.previous_diagnoses.values[idx][0]
+        diagnoses_info = self.df.previous_diagnoses.values[idx][0]
         aki_status = self.df.aki_status_in_visit.values[idx]
         days = self.df.days.values[idx]
         # print(idx)
 
-        aki_happened = False
         labels = []
         day_info_list = []
         label = None
 
         for day in range(days[0], days[0] + self.observing_window + self.pred_window):
+            # print('day', day)
             if day not in days:
                 labels.append(0)
-                day_info_list.append(self.tokenize('', self.max_length))
+                day_info_list.append(self.tokenize('', self.max_length_day))
             else:
                 i = days.index(day)
                 labels.append(aki_status[i])
 
-                if str(day_info[i]) == 'nan':
-                    day_info_list.append(self.tokenize('[PAD]', self.max_length))
+                if (str(day_info[i]) == 'nan') or (day_info[i] == np.nan):
+                    day_info_list.append(self.tokenize('[PAD]', self.max_length_day))
                 else:
-                    day_info_list.append(self.tokenize(day_info[i], self.max_length))
+                    day_info_list.append(self.tokenize(day_info[i], self.max_length_day))
 
-        diagnoses = self.tokenize(diagnoses, self.max_length_diags)
 
         if sum(labels[-self.pred_window:]) > 0:
             label = 1
         else:
             label = 0
 
+        if (str(diagnoses_info) == 'nan') or (diagnoses_info == np.nan):
+            diagnoses_info = self.tokenize('[PAD]', self.max_length_diags)
+        else:
+            diagnoses_info = self.tokenize(diagnoses_info, self.max_length_diags)
+
         #make tensors
         tensor_day = torch.tensor(day_info_list[:self.observing_window], dtype=torch.int64)
-        tensor_diags = torch.tensor(diagnoses, dtype=torch.int64)
+        tensor_diags = torch.tensor(diagnoses_info, dtype=torch.int64)
         tensor_labels = torch.tensor(label, dtype=torch.float64)
     
 
@@ -430,6 +439,7 @@ def train(model,
     print('Finished Training!')
 
 
+
 def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
      use_gpu=True, project_name='test', pred_window=2, observing_window=3, BATCH_SIZE=128, LR=0.0001,\
          min_frequency=1, hidden_size=128, num_epochs=50, wandb_mode='online', PRETRAINED_PATH=None, run_id=None):
@@ -451,7 +461,6 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     if exists(CURR_PATH + '/tokenizer.json'):
         tokenizer = Tokenizer.from_file(CURR_PATH + '/tokenizer.json')
     else:
-        print(f'Training the tokenizer..')
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
         tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
         tokenizer.pre_tokenizer = pre_tokenizers.Sequence([Whitespace(), Digits(individual_digits=False), Punctuation( behavior = 'removed')])
@@ -487,13 +496,13 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     if small_dataset: frac=0.1
     else: frac=1
 
-    train_dataset = MyDataset(pid_train_df.sample(frac=frac), tokenizer=tokenizer, max_length=400)
+    train_dataset = MyDataset(pid_train_df.sample(frac=frac), tokenizer=tokenizer, max_length_day=400)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    val_dataset = MyDataset(pid_val_df.sample(frac=frac), tokenizer=tokenizer, max_length=400)
+    val_dataset = MyDataset(pid_val_df.sample(frac=frac), tokenizer=tokenizer, max_length_day=400)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    test_dataset = MyDataset(pid_test_df.sample(frac=frac), tokenizer=tokenizer, max_length=400)
+    test_dataset = MyDataset(pid_test_df.sample(frac=frac), tokenizer=tokenizer, max_length_day=400)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 
@@ -629,6 +638,6 @@ print('test_admissions', len(test_admissions))
 
 ########################################### RUNs ############################################
 
-main(saving_folder_name='test_model', criterion='BCELoss', small_dataset=True,\
-     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=64, LR=1e-05,\
-         min_frequency=3, hidden_size=128, num_epochs=2, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+main(saving_folder_name='test_model', criterion='BCELoss', small_dataset=False,\
+     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=128, LR=1e-05,\
+         min_frequency=3, hidden_size=128, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
