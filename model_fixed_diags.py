@@ -272,7 +272,15 @@ def evaluate(model, test_loader, device, threshold=0.5, log_res=True):
     classification_report_res = classification_report(stacked_labels, stacked_preds, zero_division=0, output_dict=True)
     print(classification_report(stacked_labels, stacked_preds, zero_division=0, output_dict=False))
     if log_res:
-        wandb.log(classification_report_res)
+        for k_day, v_day in classification_report_res.items():
+            if k_day is not 'accuracy':
+                for k, v in v_day.items():
+                    if k is not 'support':
+                        wandb.log({"test_" + k + k_day : v})
+                        # print("test_" + k +'_'+ k_day, v)
+            else:
+                # print('accuracy', v_day)
+                wandb.log({"test_" + k_day, v_day})
 
     return classification_report_res, acc
 
