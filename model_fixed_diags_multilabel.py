@@ -470,18 +470,23 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     TXT_DIR_TRAIN = CURR_PATH + '/txt_files/train'
     destination_folder = CURR_PATH + '/training/'
 
+    print(f'Current working directory is {CURR_PATH}')
+
 
     # Training the tokenizer
     if exists(CURR_PATH + '/tokenizer.json'):
         tokenizer = Tokenizer.from_file(CURR_PATH + '/tokenizer.json')
+        print(f'Tokenizer is loaded from ==> {CURR_PATH}/tokenizer.json. Vocab size is {tokenizer.get_vocab_size()}')
     else:
+        print('Training tokenizer...')
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
         tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
-        tokenizer.pre_tokenizer = pre_tokenizers.Sequence([Whitespace(), Digits(individual_digits=False), Punctuation( behavior = 'removed')])
+        tokenizer.pre_tokenizer = Whitespace()
         trainer = BpeTrainer(special_tokens=["[PAD]", "[UNK]"], min_frequency=3)
         files = glob.glob(TXT_DIR_TRAIN+'/*')
         tokenizer.train(files, trainer)
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        print(f'Vocab size is {tokenizer.get_vocab_size()}')
 
     # variables for classes
     max_length = 400
@@ -543,7 +548,7 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     optimizer = optim.Adam(model.parameters(), lr=LR)
     # Decay LR by a factor of 0.1 every 7 epochs
     # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-    exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[15,40, 80], gamma=0.1)
+    exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[15,30, 50], gamma=0.1)
     # exp_lr_scheduler = None
 
     train_params = {
@@ -654,7 +659,12 @@ print('test_admissions', len(test_admissions))
 
 ########################################### RUNs ############################################
 
-# 34001
+# # 34001
+# main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
+#      use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=512, LR=1e-05,\
+#          min_frequency=3, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+
+# 34232 with new tokenizer
 main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-     use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=512, LR=1e-05,\
+     use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=800  , LR=1e-05,\
          min_frequency=3, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
