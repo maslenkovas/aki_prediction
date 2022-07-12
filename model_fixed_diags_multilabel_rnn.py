@@ -125,7 +125,7 @@ class MyDataset(Dataset):
 
 
 class EHR_MODEL(nn.Module):
-    def __init__(self, max_length, vocab_size, device, pred_window=2, observing_window=3,  H=128, embedding_size=200):
+    def __init__(self, max_length, vocab_size, device, pred_window=2, observing_window=3,  H=128, embedding_size=200, drop=0.6):
         super(EHR_MODEL, self).__init__()
 
         self.observing_window = observing_window
@@ -136,6 +136,7 @@ class EHR_MODEL(nn.Module):
         self.embedding_size = embedding_size
         self.vocab_size = vocab_size
         self.device = device
+        self.drop = drop
 
         # self.embedding = pretrained_model
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
@@ -156,7 +157,7 @@ class EHR_MODEL(nn.Module):
                             batch_first=True,
                             bidirectional=True)
 
-        self.drop = nn.Dropout(p=0.5)
+        self.drop = nn.Dropout(p=self.drop)
 
         self.fc_2 = nn.Linear(self.H*2, 2)
 
@@ -176,9 +177,9 @@ class EHR_MODEL(nn.Module):
             # print('out_emb', out_emb.size())
 
             # lstm layer applied to embedded tensors
-            output_rnn_day= self.fc_day(\
+            output_rnn_day= self.drop(self.fc_day(\
                                     self.rnn_day(out_emb)[0]\
-                                        .reshape(batch_size, self.max_length * 2 * self.H))
+                                        .reshape(batch_size, self.max_length * 2 * self.H)))
 
             # print('output_lstm_day', output_lstm_day.size())                   
             # concatenate for all * days
@@ -200,7 +201,7 @@ class EHR_MODEL(nn.Module):
 
 
 
-# Save and Load Functions
+######################################### Save and Load Functions #########################################
 def save_checkpoint(save_path, model, optimizer, valid_loss):
 
     if save_path == None:
@@ -245,8 +246,17 @@ def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
+def calculate_class_weights(data_loader):
+    labels = np.array([]).reshape(0,2)
+    for tensor_day, tensor_diags, tensor_labels, idx in data_loader:
+        labels = np.concatenate([labels, tensor_labels], axis=0, )
+        train_stacked_labels = labels.reshape(2, len(labels))
+        n_pos = np.sum(train_stacked_labels, axis=1)
+        n_neg = train_stacked_labels.shape[1] - np.sum(train_stacked_labels, axis=1)
+        weights = np.round(n_neg / n_pos, 2)
+        return weights
 
-def evaluate(model, test_loader, device, threshold=0.5, log_res=True):
+def evaluate(model, test_loader, device, use_sigmoid, threshold=0.5, log_res=True):
     model = model.to(device)
     stacked_labels = torch.tensor([]).to(device)
     stacked_preds = torch.tensor([]).to(device)
@@ -261,7 +271,8 @@ def evaluate(model, test_loader, device, threshold=0.5, log_res=True):
             tensor_diags = tensor_diags.to(device)
 
             output = model(day_info, tensor_diags)
-            output = nn.Sigmoid()(output)
+            if use_sigmoid:
+                output = nn.Sigmoid()(output)
             output = (output > threshold).int()
 
             # stacking labels and predictions
@@ -283,7 +294,7 @@ def evaluate(model, test_loader, device, threshold=0.5, log_res=True):
             if k_day is not 'accuracy':
                 for k, v in v_day.items():
                     if k is not 'support':
-                        wandb.log({"test_" + k + k_day : v})
+                        wandb.log({"test_" + k + '_' + k_day : v})
                         # print("test_" + k +'_'+ k_day, v)
             else:
                 # print('accuracy', v_day)
@@ -407,8 +418,8 @@ def train(model,
         classification_report_res.update({'epoch':epoch+1})
 
         # log the evaluation metrics 
-        # for key, value in classification_report_res.items():
-        #     wandb.log({key:value, 'epoch':epoch+1})
+        for key, value in classification_report_res.items():
+            wandb.log({key:value, 'epoch':epoch+1})
 
         # valid loss
         epoch_average_train_loss = running_loss / len(train_loader)  
@@ -455,8 +466,8 @@ def train(model,
 
 
 def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-     use_gpu=True, project_name='test', pred_window=2, observing_window=3, BATCH_SIZE=128, LR=0.0001,\
-         min_frequency=1, hidden_size=128, num_epochs=50, wandb_mode='online', PRETRAINED_PATH=None, run_id=None):
+     use_gpu=True, project_name='test', pred_window=2, observing_window=3, weight_decay=0, BATCH_SIZE=128, LR=0.0001,\
+         min_frequency=1, hidden_size=128, drop=0.6, num_epochs=50, wandb_mode='online', PRETRAINED_PATH=None, run_id=None):
     # define the device
     if use_gpu:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -482,7 +493,7 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
         tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
         tokenizer.pre_tokenizer = Whitespace()
-        trainer = BpeTrainer(special_tokens=["[PAD]", "[UNK]"], min_frequency=3)
+        trainer = BpeTrainer(special_tokens=["[PAD]", "[UNK]"], min_frequency=min_frequency)
         files = glob.glob(TXT_DIR_TRAIN+'/*')
         tokenizer.train(files, trainer)
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -538,14 +549,14 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
 
     # file_path = destination_folder + '/88087_no_weights-lr0.00005-adam'
     
-    model = EHR_MODEL(vocab_size=vocab_size, max_length=max_length, device=device, pred_window=2, observing_window=3).to(device)
+    model = EHR_MODEL(vocab_size=vocab_size, max_length=max_length, device=device, pred_window=2, observing_window=3, drop=drop).to(device)
 
     if PRETRAINED_PATH is not None:
         model.load_state_dict(torch.load(PRETRAINED_PATH, map_location=device)['model_state_dict'])
         model.embedding.weight.data = model.embedding.weight.data
         print(f"Pretrained model loaded from <=== {PRETRAINED_PATH}")
 
-    optimizer = optim.Adam(model.parameters(), lr=LR)
+    optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=weight_decay)
     # Decay LR by a factor of 0.1 every 7 epochs
     # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[15,30, 50], gamma=0.1)
@@ -567,10 +578,23 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
                     'scheduler':exp_lr_scheduler
                 }
 
+    weights = ''
+    use_sigmoid = True
+    if criterion=='BCEWithLogitsLoss':
+        #calculate weights
+        print('Calculating class weights..')
+        pos_weight = torch.tensor(calculate_class_weights(train_loader))
+        print(f'Calss weights are {pos_weight}')
+        pos_weight = pos_weight.to(device)
+        train_params['pos_weight'] = pos_weight
+        weights = 'with_weights'
+        use_sigmoid = False
+
+
     # path for the model
     if saving_folder_name is None:
-        saving_folder_name = 'FX_NO_PRETRAINING_DIAGS_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_'  \
-            + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window)
+        saving_folder_name = 'NO_PRE_DIAGS_RNN_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_'  \
+            + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop)
     
     file_path = destination_folder + saving_folder_name
     train_params['file_path'] = file_path
@@ -589,18 +613,19 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     else:
         resume = 'must'
         
-    args = {'optimizer':optimizer, 'criterion':'BCELoss', 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'no_pretraining'}
+    args = {'optimizer':optimizer, 'criterion':'BCELoss', 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'no_pretraining','model':'RNN', 'weight_decay':weight_decay, 'drop':drop}
     wandb.init(project=project_name, name=run_name, mode=wandb_mode, config=args, id=run_id, resume=resume)
     print('Run id is: ', run_id)
 
     # training
     print('Training started..')
+    # print(f'With parameters: {train_params}')
     train(**train_params)
 
     # testing
     print('\nTesting the model...')
     load_checkpoint(file_path + '/model.pt', model, optimizer, device=device)
-    evaluate(model, test_loader, device, threshold=0.5, log_res=True)
+    evaluate(model, test_loader, device, use_sigmoid, threshold=0.5, log_res=True)
 
     wandb.finish()
 
@@ -657,6 +682,7 @@ print('test_admissions', len(test_admissions))
 
 
 
+
 ########################################### RUNs ############################################
 
 # # 34001
@@ -664,7 +690,17 @@ print('test_admissions', len(test_admissions))
 #      use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=512, LR=1e-05,\
 #          min_frequency=3, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
 
-# 34232 with new tokenizer
-main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-     use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=800  , LR=1e-05,\
-         min_frequency=3, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+# # 34489
+# main(saving_folder_name=None, criterion='BCEWithLogitsLoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=1024  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+
+# # 34492   weight_decay = 0.1
+# main(saving_folder_name=None, criterion='BCEWithLogitsLoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0.1, BATCH_SIZE=1024  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+
+#  34493  weight_decay = 0.1, drop=0.6
+main(saving_folder_name=None, criterion='BCEWithLogitsLoss', small_dataset=False,\
+     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0.1, BATCH_SIZE=1024  , LR=1e-05,\
+         min_frequency=5, hidden_size=128, drop=0.6, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
