@@ -123,7 +123,8 @@ class MyDataset(Dataset):
         tensor_labs = torch.tensor(info_labs_list, dtype=torch.int32)
         tensor_labels = torch.tensor(labels, dtype=torch.int32)
         return (tensor_demo, tensor_med, tensor_vitals, tensor_labs), tensor_labels
-   
+
+# The pretraining embedding model 
 class EHR_Embedding(nn.Module):
     def __init__(self, embedding_size, vocab_size=15463, drop=0.1):
         super(EHR_Embedding, self).__init__()
@@ -171,7 +172,7 @@ class EHR_Embedding(nn.Module):
 
         return embedding_X, projection_X, embedding_Y, projection_Y
 
-
+# The fine-tuning model
 class LSTM_model(nn.Module):
 
     def __init__(self, max_length, pred_window, vocab_size, H=128,  max_day=7, embedding_size=200):
