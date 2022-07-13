@@ -532,7 +532,8 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     PKL_PATH = CURR_PATH+'/pickles/'
     DF_PATH = CURR_PATH +'/dataframes/'
     TXT_DIR_TRAIN = CURR_PATH + '/txt_files/train'
-    destination_folder = '/l/users/svetlana.maslenkova/models' + '/finetuning/embeddings/'
+    # destination_folder = '/l/users/svetlana.maslenkova/models' + '/finetuning/embeddings/'
+    destination_folder = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/training/'
 
     print(f'Current working directory is {CURR_PATH}')
 
@@ -732,7 +733,7 @@ print('test_admissions', len(test_admissions))
 
 ################################################# RUNs ####################################################
 ## 
-PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/embeddings/CL_EMB_FX_DIAGS_200_bs64_2065k_lr1e-05_Adam_temp0.1/model.pt'
+PRETRAINED_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/pretraining/embeddings/CL_EMB_FX_DIAGS_200_bs64_2065k_lr1e-05_Adam_temp0.1/model.pt'
 main(saving_folder_name='test_model', criterion='BCEWithLogitsLoss', small_dataset=True,\
-     use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=128  , LR=1e-05,\
+     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=128  , LR=1e-05,\
          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
