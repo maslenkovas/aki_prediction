@@ -1,6 +1,7 @@
 # IMPORTS
 from distutils.command.config import config
-import pickle5 as pickle
+# import pickle5 as pickle
+import pickle as pickle
 
 # Libraries
 import matplotlib.pyplot as plt
@@ -685,9 +686,9 @@ print('test_admissions', len(test_admissions))
 
 ########################################### RUNs ############################################
 # test run
-# main(saving_folder_name='test_model', criterion='BCEWithLogitsLoss', small_dataset=True,\
-#      use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=128, LR=1e-05,\
-#          min_frequency=5, hidden_size=128, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+main(saving_folder_name='test_model', criterion='BCEWithLogitsLoss', small_dataset=True,\
+     use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=128, LR=1e-05,\
+         min_frequency=5, hidden_size=128, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
 
 # # 34001
 # main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
@@ -738,6 +739,6 @@ print('test_admissions', len(test_admissions))
 #          min_frequency=5, hidden_size=128, drop=0.6, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
 
 ## 34518: weight_decay=0, min_frequency=5, drop=0.4
-main(saving_folder_name=None, criterion='BCEWithLogitsLoss', small_dataset=False,\
-     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05,\
-         min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+# main(saving_folder_name=None, criterion='BCEWithLogitsLoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)

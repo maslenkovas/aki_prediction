@@ -1,6 +1,8 @@
 # IMPORTS
 from distutils.command.config import config
 import pickle5 as pickle
+# import pickle
+
 
 # Libraries
 import matplotlib.pyplot as plt
@@ -10,7 +12,7 @@ import os
 from os.path import exists
 
 # Evaluation
-from sklearn.metrics import f1_score, multilabel_confusion_matrix, accuracy_score, classification_report
+from sklearn.metrics import classification_report, precision_recall_curve
 import seaborn as sns
 
 # Tokenization
@@ -169,9 +171,11 @@ class MyDataset(Dataset):
         #make tensors
         tensor_day = torch.tensor(day_info_list[:self.observing_window], dtype=torch.int64)
         tensor_diags = torch.tensor(diagnoses_info, dtype=torch.int64)
-        tensor_labels = torch.tensor(labels[- self.pred_window:], dtype=torch.float64)
+        # multilabel
+        # tensor_labels = torch.tensor(labels[- self.pred_window:], dtype=torch.float64)
+        # one label
+        # tensor_labels = torch.tensor(label, dtype=torch.float64)
     
-
         return tensor_day, tensor_diags, tensor_labels, idx
 
 ########################################### MODEL #################################################
@@ -298,20 +302,25 @@ def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
-def calculate_class_weights(data_loader):
-    labels = np.array([]).reshape(0,2)
-    for tensor_day, tensor_diags, tensor_labels, idx in data_loader:
-        labels = np.concatenate([labels, tensor_labels], axis=0, )
-        train_stacked_labels = labels.reshape(2, len(labels))
-        n_pos = np.sum(train_stacked_labels, axis=1)
-        n_neg = train_stacked_labels.shape[1] - np.sum(train_stacked_labels, axis=1)
-        weights = np.round(n_neg / n_pos, 2)
-        return weights
+# def calculate_class_weights(data_loader):
+#     i = 0
+#     for tensor_day, tensor_diags, tensor_labels, idx in data_loader:
+#         if i == 0:
+#             labels = np.array([]).reshape(0, tensor_labels.size(-1))
+#         labels = np.concatenate([labels, tensor_labels], axis=0, )
+#         i += 1
+#     train_stacked_labels = labels.T
+#     n_pos = np.sum(train_stacked_labels, axis=1)
+#     n_neg = train_stacked_labels.shape[1] - n_pos
+#     weights = np.round(n_neg / n_pos, 2)
+    
+#     return weights
 
-def evaluate(model, test_loader, device, use_sigmoid, threshold=0.5, log_res=True):
+def evaluate(model, test_loader, device, use_sigmoid, log_res=True):
     model = model.to(device)
     stacked_labels = torch.tensor([]).to(device)
-    stacked_preds = torch.tensor([]).to(device)
+    # stacked_preds = torch.tensor([]).to(device)
+    stacked_probs = torch.tensor([]).to(device)
     
     model.eval()
     step = 1
@@ -322,35 +331,63 @@ def evaluate(model, test_loader, device, use_sigmoid, threshold=0.5, log_res=Tru
             day_info = tensor_day.to(device)
             tensor_diags = tensor_diags.to(device)
 
-            output = model(day_info, tensor_diags)
+            probs = model(day_info, tensor_diags)
             if use_sigmoid:
-                output = nn.Sigmoid()(output)
-            output = (output > threshold).int()
+                probs = nn.Sigmoid()(probs)
+            # output = (probs > threshold).int()
 
             # stacking labels and predictions
             stacked_labels = torch.cat([stacked_labels, labels], dim=0, )
-            stacked_preds = torch.cat([stacked_preds, output], dim=0, )
-
+            # stacked_preds = torch.cat([stacked_preds, output], dim=0, )
+            stacked_probs = torch.cat([stacked_probs, probs], dim=0, )
             step += 1
+
+    # transfer to device
+    stacked_labels = stacked_labels.cpu().detach().numpy()
+    stacked_probs = stacked_probs.cpu().detach().numpy()
+    # stacked_preds = stacked_preds.cpu().detach().numpy()
+
+    ### get the best threshold to evaluate ###
+    precision, recall, thresholds = precision_recall_curve(stacked_labels, stacked_probs)
+    # convert to f score
+    fscore = (2 * precision * recall) / (precision + recall)
+    # locate the index of the largest f score
+    ix = np.argmax(np.nan_to_num(fscore))
+    print('Best Threshold=%f, F-Score=%.3f' % (thresholds[ix], fscore[ix]))
+    threshold = np.round(thresholds[ix], 2)
+    stacked_preds = (stacked_probs > threshold).astype(int)
 
     # calculate accuracy
     acc = torch.round(torch.sum(stacked_labels==stacked_preds) / len(stacked_labels), decimals=2)
-    # transfer to device
-    stacked_labels = stacked_labels.cpu().detach().numpy()
-    stacked_preds = stacked_preds.cpu().detach().numpy()
+
     # get classification metrics for all samples in the test set
     classification_report_res = classification_report(stacked_labels, stacked_preds, zero_division=0, output_dict=True)
     print(classification_report(stacked_labels, stacked_preds, zero_division=0, output_dict=False))
     if log_res:
         for k_day, v_day in classification_report_res.items():
-            if k_day is not 'accuracy':
+            if k_day != 'accuracy':
                 for k, v in v_day.items():
-                    if k is not 'support':
+                    if k != 'support':
                         wandb.log({"test_" + k + k_day : v})
                         # print("test_" + k +'_'+ k_day, v)
             else:
                 # print('accuracy', v_day)
                 wandb.log({"test_" + k_day: v_day})
+
+    # plot PR Curve
+    # plot the roc curve for the model
+    no_skill = len(stacked_labels[stacked_labels==1]) / len(stacked_labels)
+    plt.plot([0,1], [no_skill,no_skill], linestyle='--', label='No Skill')
+    plt.plot(recall, precision, marker='.', label='Model')
+    plt.scatter(recall[ix], precision[ix], marker='o', color='black', label='Best')
+    # axis labels
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('PR Curve')
+    plt.legend()
+    # show the plot
+    plt.show()
+    wandb.log({"chart": plt})
 
     return classification_report_res, acc
 
@@ -519,7 +556,7 @@ def train(model,
 
 ######################## MAIN ###############################
 def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-     use_gpu=True, project_name='test', pred_window=2, observing_window=3, weight_decay=0, BATCH_SIZE=128, LR=0.0001,\
+     use_gpu=True, project_name='test', experiment='test', pred_window=2, observing_window=3, weight_decay=0, BATCH_SIZE=128, LR=0.0001,\
          min_frequency=1, hidden_size=128, drop=0.6, num_epochs=50, wandb_mode='online', PRETRAINED_PATH=None, run_id=None):
     # define the device
     if use_gpu:
@@ -532,8 +569,8 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     PKL_PATH = CURR_PATH+'/pickles/'
     DF_PATH = CURR_PATH +'/dataframes/'
     TXT_DIR_TRAIN = CURR_PATH + '/txt_files/train'
-    # destination_folder = '/l/users/svetlana.maslenkova/models' + '/finetuning/embeddings/'
-    destination_folder = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/training/'
+    destination_folder = '/l/users/svetlana.maslenkova/models' + '/finetuning/embeddings/'
+    # destination_folder = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/training/'
 
     print(f'Current working directory is {CURR_PATH}')
 
@@ -571,9 +608,9 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
         pid_test_df = pickle.load(f)
 
 
-    pid_train_df = pid_train_df[pid_train_df.hadm_id.isin(train_admissions)]
-    pid_val_df = pid_val_df[pid_val_df.hadm_id.isin(val_admissions)]
-    pid_test_df = pid_test_df[pid_test_df.hadm_id.isin(test_admissions)]
+    # pid_train_df = pid_train_df[pid_train_df.hadm_id.isin(train_admissions)]
+    # pid_val_df = pid_val_df[pid_val_df.hadm_id.isin(val_admissions)]
+    # pid_test_df = pid_test_df[pid_test_df.hadm_id.isin(test_admissions)]
 
     if small_dataset: frac=0.1
     else: frac=1
@@ -607,6 +644,11 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
         print(f"Pretrained model loaded from <=== {PRETRAINED_PATH}")
         with torch.no_grad():
             pretrained_model.embedding.weight.copy_(model.embedding.weight)
+
+        for name, param in model.named_parameters():
+            if name == 'embedding.weight':
+                param.requires_grad = False
+                print(f'{name}.requires_grad is set to False')
 
 
     optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=weight_decay)
@@ -646,7 +688,7 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
 
     # path for the model
     if saving_folder_name is None:
-        saving_folder_name = 'FX_NO_PRETRAINING_DIAGS_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_'  \
+        saving_folder_name = 'FT_PREemb_DIAGS_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_'  \
             + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop)
     
     file_path = destination_folder + saving_folder_name
@@ -666,7 +708,7 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     else:
         resume = 'must'
         
-    args = {'optimizer':optimizer, 'criterion':'BCELoss', 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'no_pretraining', 'weight_decay':weight_decay, 'drop':drop}
+    args = {'optimizer':optimizer, 'criterion':'BCELoss', 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':experiment, 'weight_decay':weight_decay, 'drop':drop}
     wandb.init(project=project_name, name=run_name, mode=wandb_mode, config=args, id=run_id, resume=resume)
     print('Run id is: ', run_id)
 
@@ -677,63 +719,77 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     # testing
     print('\nTesting the model...')
     load_checkpoint(file_path + '/model.pt', model, optimizer, device=device)
-    evaluate(model, test_loader, device, use_sigmoid, threshold=0.5, log_res=True)
+    evaluate(model, test_loader, device, use_sigmoid, log_res=True)
 
     wandb.finish()
 
 
-#paths
-print('Filtering admissions...')
-CURR_PATH = os.getcwd()
-PKL_PATH = CURR_PATH+'/pickles/'
-DF_PATH = CURR_PATH +'/dataframes/'
+# #paths
+# print('Filtering admissions...')
+# CURR_PATH = os.getcwd()
+# PKL_PATH = CURR_PATH+'/pickles/'
+# DF_PATH = CURR_PATH +'/dataframes/'
 
-# loading the data
-with open(DF_PATH + 'pid_train_df_finetuning_6days_aki.pkl', 'rb') as f:
-    pid_train_df = pickle.load(f)
+# # loading the data
+# with open(DF_PATH + 'pid_train_df_finetuning_6days_aki.pkl', 'rb') as f:
+#     pid_train_df = pickle.load(f)
 
-with open(DF_PATH + 'pid_val_df_finetuning_6days_aki.pkl', 'rb') as f:
-    pid_val_df = pickle.load(f)
+# with open(DF_PATH + 'pid_val_df_finetuning_6days_aki.pkl', 'rb') as f:
+#     pid_val_df = pickle.load(f)
 
-with open(DF_PATH + 'pid_test_df_finetuning_6days_aki.pkl', 'rb') as f:
-    pid_test_df = pickle.load(f)
+# with open(DF_PATH + 'pid_test_df_finetuning_6days_aki.pkl', 'rb') as f:
+#     pid_test_df = pickle.load(f)
 
-observing_window = 3 
+# observing_window = 3 
 
-train_admissions = []
-for adm in pid_train_df.hadm_id.unique():   
-    if ({1,2,3,4}.issubset(set(pid_train_df[pid_train_df.hadm_id==adm].days.values[0])) or \
-        {-1,0,1,2}.issubset(set(pid_train_df[pid_train_df.hadm_id==adm].days.values[0]))or \
-            {0,1,2,3}.issubset(set(pid_train_df[pid_train_df.hadm_id==adm].days.values[0]))) and \
-        (len(pid_train_df[pid_train_df.hadm_id==adm].days.values[0])>3) and\
-            sum(pid_train_df[pid_train_df.hadm_id==adm].aki_status_in_visit.values[0][:observing_window])==0:
-        train_admissions.append(adm)
+# train_admissions = []
+# for adm in pid_train_df.hadm_id.unique():   
+#     if ({1,2,3,4}.issubset(set(pid_train_df[pid_train_df.hadm_id==adm].days.values[0])) or \
+#         {-1,0,1,2}.issubset(set(pid_train_df[pid_train_df.hadm_id==adm].days.values[0]))or \
+#             {0,1,2,3}.issubset(set(pid_train_df[pid_train_df.hadm_id==adm].days.values[0]))) and \
+#         (len(pid_train_df[pid_train_df.hadm_id==adm].days.values[0])>3) and\
+#             sum(pid_train_df[pid_train_df.hadm_id==adm].aki_status_in_visit.values[0][:observing_window])==0:
+#         train_admissions.append(adm)
 
-val_admissions = []
-for adm in pid_val_df.hadm_id.unique():   
-    if ({1,2,3,4}.issubset(set(pid_val_df[pid_val_df.hadm_id==adm].days.values[0])) or \
-        {-1,0,1,2}.issubset(set(pid_val_df[pid_val_df.hadm_id==adm].days.values[0]))or \
-            {0,1,2,3}.issubset(set(pid_val_df[pid_val_df.hadm_id==adm].days.values[0]))) and \
-        (len(pid_val_df[pid_val_df.hadm_id==adm].days.values[0])>3) and\
-            sum(pid_val_df[pid_val_df.hadm_id==adm].aki_status_in_visit.values[0][:observing_window])==0:
-        val_admissions.append(adm)
+# val_admissions = []
+# for adm in pid_val_df.hadm_id.unique():   
+#     if ({1,2,3,4}.issubset(set(pid_val_df[pid_val_df.hadm_id==adm].days.values[0])) or \
+#         {-1,0,1,2}.issubset(set(pid_val_df[pid_val_df.hadm_id==adm].days.values[0]))or \
+#             {0,1,2,3}.issubset(set(pid_val_df[pid_val_df.hadm_id==adm].days.values[0]))) and \
+#         (len(pid_val_df[pid_val_df.hadm_id==adm].days.values[0])>3) and\
+#             sum(pid_val_df[pid_val_df.hadm_id==adm].aki_status_in_visit.values[0][:observing_window])==0:
+#         val_admissions.append(adm)
 
-test_admissions = []
-for adm in pid_test_df.hadm_id.unique():   
-    if ({1,2,3,4}.issubset(set(pid_test_df[pid_test_df.hadm_id==adm].days.values[0])) or \
-        {-1,0,1,2}.issubset(set(pid_test_df[pid_test_df.hadm_id==adm].days.values[0]))or \
-            {0,1,2,3}.issubset(set(pid_test_df[pid_test_df.hadm_id==adm].days.values[0]))) and \
-        (len(pid_test_df[pid_test_df.hadm_id==adm].days.values[0])>3) and\
-            sum(pid_test_df[pid_test_df.hadm_id==adm].aki_status_in_visit.values[0][:observing_window])==0:
-        test_admissions.append(adm)
+# test_admissions = []
+# for adm in pid_test_df.hadm_id.unique():   
+#     if ({1,2,3,4}.issubset(set(pid_test_df[pid_test_df.hadm_id==adm].days.values[0])) or \
+#         {-1,0,1,2}.issubset(set(pid_test_df[pid_test_df.hadm_id==adm].days.values[0]))or \
+#             {0,1,2,3}.issubset(set(pid_test_df[pid_test_df.hadm_id==adm].days.values[0]))) and \
+#         (len(pid_test_df[pid_test_df.hadm_id==adm].days.values[0])>3) and\
+#             sum(pid_test_df[pid_test_df.hadm_id==adm].aki_status_in_visit.values[0][:observing_window])==0:
+#         test_admissions.append(adm)
 
-print('train_admissions', len(train_admissions))
-print('val_admissions', len(val_admissions))
-print('test_admissions', len(test_admissions))
+# print('train_admissions', len(train_admissions))
+# print('val_admissions', len(val_admissions))
+# print('test_admissions', len(test_admissions))
 
 ################################################# RUNs ####################################################
-## 
-PRETRAINED_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/pretraining/embeddings/CL_EMB_FX_DIAGS_200_bs64_2065k_lr1e-05_Adam_temp0.1/model.pt'
+
+## test run
+PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/embeddings/CL_EMB_FX_DIAGS_200_bs64_2065k_lr1e-05_Adam_temp0.1/model.pt'
 main(saving_folder_name='test_model', criterion='BCEWithLogitsLoss', small_dataset=True,\
-     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=128  , LR=1e-05,\
-         min_frequency=5, hidden_size=128, drop=0.4, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+     use_gpu=False, project_name='test', pred_window=2, weight_decay=0, BATCH_SIZE=128  , LR=1e-05,\
+         min_frequency=5, hidden_size=128, drop=0.4, num_epochs=1, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+
+
+# 35172:
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/embeddings/CL_EMB_FX_DIAGS_200_bs64_2065k_lr1e-05_Adam_temp0.1/model.pt'
+# main(saving_folder_name=None, criterion='BCEWithLogitsLoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', experiment='pretrained_embeddings', pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+
+#  35174
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/embeddings/CL_EMB_FX_DIAGS_200_bs64_2065k_lr1e-05_Adam_temp0.1/model.pt'
+# main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', experiment='pretrained_embeddings', pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)

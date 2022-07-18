@@ -561,7 +561,9 @@ def load_checkpoint(load_path, model, optimizer, device):
 import os
 import pickle5 as pickle
 
-def main(project_name, num_epochs, PRETRAINED_PATH=None, drop=0.1, temperature=0.5, embedding_size=150, min_frequency=1, BATCH_SIZE=16, small_dataset=True, LR=0.00001, save_model=False, use_gpu=True, saving_folder_name=None, wandb_mode='online', run_id=None):
+def main(project_name, num_epochs, PRETRAINED_PATH=None, drop=0.1, temperature=0.5, embedding_size=200, \
+    min_frequency=1, BATCH_SIZE=16, small_dataset=True, LR=0.00001, save_model=False, use_gpu=True, \
+        saving_folder_name=None, wandb_mode='online', run_id=None):
     
     if use_gpu:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -675,6 +677,7 @@ def main(project_name, num_epochs, PRETRAINED_PATH=None, drop=0.1, temperature=0
     print('Run id is: ', run_id)
     wandb.init(project=project_name, name=run_name, config=args, id=run_id, resume=resume, mode=wandb_mode)
     train(**train_params)
+    wandb.finish()
 
 # test
 # main(project_name='Contrastive-loss-pretraining', num_epochs=15, embedding_size=200, min_frequency=1, BATCH_SIZE=128, small_dataset=True, LR=0.00001, save_model=True, saving_folder_name=None, use_gpu=False, log_results=False)
