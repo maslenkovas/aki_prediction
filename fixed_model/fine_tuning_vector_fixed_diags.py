@@ -1,6 +1,8 @@
 # IMPORTS
 from distutils.command.config import config
 import pickle5 as pickle
+# import pickle
+
 
 # Libraries
 import matplotlib.pyplot as plt
@@ -10,15 +12,14 @@ import os
 from os.path import exists
 
 # Evaluation
-from sklearn.metrics import f1_score, multilabel_confusion_matrix, accuracy_score, classification_report
-import seaborn as sns
+from sklearn.metrics import classification_report, precision_recall_curve, accuracy_score, f1_score, recall_score, precision_score, confusion_matrix
+import wandb
 
 # Tokenization
 from tokenizers import  Tokenizer
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
-from tokenizers.pre_tokenizers import Digits, Punctuation, Whitespace
-from tokenizers import pre_tokenizers
+from tokenizers.pre_tokenizers import Whitespace
 import glob
 
 # data
@@ -33,7 +34,75 @@ from torch.optim import lr_scheduler
 from torch.utils.data import Dataset, DataLoader
 
 
+########################################### UTILS ###########################################
 
+# Save and Load Functions
+def save_checkpoint(save_path, model, optimizer, valid_loss):
+
+    if save_path == None:
+        return
+    
+    state_dict = {'model_state_dict': model.state_dict(),
+                  'optimizer_state_dict': optimizer.state_dict(),
+                  'valid_loss': valid_loss}
+    
+    torch.save(state_dict, save_path)
+    print(f'Model saved to ==> {save_path}')
+
+
+def load_checkpoint(load_path, model, optimizer, device):
+
+    if load_path==None:
+        return
+    
+    state_dict = torch.load(load_path, map_location=device)
+    print(f'Model loaded from <== {load_path}')
+    
+    model.load_state_dict(state_dict['model_state_dict'])
+    optimizer.load_state_dict(state_dict['optimizer_state_dict'])
+    
+    return state_dict['valid_loss']
+
+
+def save_metrics(save_path, train_loss_list, valid_loss_list, global_steps_list):
+
+    if save_path == None:
+        return
+    
+    state_dict = {'train_loss_list': train_loss_list,
+                  'valid_loss_list': valid_loss_list,
+                  'global_steps_list': global_steps_list}
+    
+    torch.save(state_dict, save_path)
+    print(f'Model saved to ==> {save_path}')
+
+
+def load_metrics(load_path):
+
+    if load_path==None:
+        return
+    
+    state_dict = torch.load(load_path, map_location=device)
+    print(f'Model loaded from <== {load_path}')
+    
+    return state_dict['train_loss_list'], state_dict['valid_loss_list'], state_dict['global_steps_list']
+
+def calculate_class_weights(data_loader):
+    labels = np.array([])
+    for tensor_day, tensor_diags, tensor_labels, idx in data_loader:
+        labels = np.concatenate([labels, tensor_labels], axis=0) if labels.size else tensor_labels
+    n_pos = np.sum(labels==1, axis=0)
+    n_neg = np.sum(labels==0, axis=0)
+    pos_weight = np.round(n_neg / n_pos, 2)
+    
+    return pos_weight
+
+def get_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
+
+
+########################################### DATASET #################################################
 class MyDataset(Dataset):
 
     def __init__(self, df, tokenizer, max_length_day=400, pred_window=2, observing_window=3):
@@ -91,7 +160,11 @@ class MyDataset(Dataset):
                 day_info_list.append(self.tokenize('', self.max_length_day))
             else:
                 i = days.index(day)
-                labels.append(aki_status[i])
+                
+                if np.isfinite(aki_status[i]):                    
+                    labels.append(aki_status[i])
+                else:
+                    labels.append(0)
 
                 if (str(day_info[i]) == 'nan') or (day_info[i] == np.nan):
                     day_info_list.append(self.tokenize('[PAD]', self.max_length_day))
@@ -112,15 +185,19 @@ class MyDataset(Dataset):
         #make tensors
         tensor_day = torch.tensor(day_info_list[:self.observing_window], dtype=torch.int64)
         tensor_diags = torch.tensor(diagnoses_info, dtype=torch.int64)
+        # multilabel
+        # tensor_labels = torch.tensor(labels[- self.pred_window:], dtype=torch.float64)
+        # one label
         tensor_labels = torch.tensor(label, dtype=torch.float64)
     
-
         return tensor_day, tensor_diags, tensor_labels, idx
 
+########################################### MODEL #################################################
 
-class EHR_MODEL(nn.Module):
+# Pretraining vector model
+class EHR_PRETRAINING(nn.Module):
     def __init__(self, max_length, vocab_size, device, pred_window=2, observing_window=3,  H=128, embedding_size=200, drop=0.6):
-        super(EHR_MODEL, self).__init__()
+        super(EHR_PRETRAINING, self).__init__()
 
         self.observing_window = observing_window
         self.pred_window = pred_window
@@ -152,6 +229,79 @@ class EHR_MODEL(nn.Module):
                             bidirectional=True)
 
         self.drop = nn.Dropout(p=drop)
+        self.inner_drop = nn.Dropout(p=0.5)
+
+        # self.fc_2 = nn.Linear(self.H*2, 2)
+        self.projection = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(in_features=self.H*2, out_features=256)
+        )
+
+    def forward(self, tensor_day, tensor_diagnoses):
+
+        batch_size = tensor_day.size()[0]
+
+        full_output = torch.tensor([]).to(device=self.device)
+        out_emb_diags = self.embedding(tensor_diagnoses.squeeze(1))
+        out_lstm_diags, _ = self.lstm_day(out_emb_diags)
+        full_output = out_lstm_diags.reshape(batch_size, self.max_length_diags * 2 * self.H)
+        
+
+        for d in range(self.observing_window):
+            # embedding layer applied to all tensors [16,400,200]
+            out_emb = self.embedding(tensor_day[:, d, :].squeeze(1))
+            # print('out_emb', out_emb.size())
+
+            # lstm layer applied to embedded tensors
+            output_lstm_day= self.inner_drop(self.fc_day(\
+                                    self.lstm_day(out_emb)[0]\
+                                        .reshape(batch_size, self.max_length * 2 * self.H)))
+
+            # print('output_lstm_day', output_lstm_day.size())                   
+            # concatenate for all * days
+            full_output = torch.cat([full_output, output_lstm_day], dim=1) # [16, 768]
+
+        # print('full_output size: ', full_output.size(), '\n')
+        output = self.fc_adm(full_output)
+        # print('output after fc_adm size: ', output.size(), '\n')
+        output_vector, _ = self.lstm_adm(output)
+
+        # the fisrt transformation
+        output_vector_X = self.drop(output_vector)
+        projection_X = self.projection(output_vector_X)
+        # the second transformation
+        output_vector_Y = self.drop(output_vector)
+        projection_Y = self.projection(output_vector_Y)
+
+        return output_vector_X, projection_X, output_vector_Y, projection_Y
+
+
+# The fine-tuning model
+class EHR_MODEL(nn.Module):
+    def __init__(self, pretrained_model, max_length, vocab_size, device, pred_window=2, observing_window=3,  H=128, embedding_size=200, drop=0.6):
+        super(EHR_MODEL, self).__init__()
+
+        self.observing_window = observing_window
+        self.pred_window = pred_window
+        self.H = H
+        self.max_length = max_length
+        self.max_length_diags = 30
+        self.embedding_size = embedding_size
+        self.vocab_size = vocab_size
+        self.device = device
+        self.drop = drop
+
+        self.embedding = pretrained_model.embedding
+
+        self.lstm_day = pretrained_model.lstm_day
+
+        self.fc_day = pretrained_model.fc_day
+
+        self.fc_adm = pretrained_model.fc_adm
+
+        self.lstm_adm = pretrained_model.lstm_adm
+
+        self.drop = nn.Dropout(p=drop)
 
         self.fc_2 = nn.Linear(self.H*2, 1)
 
@@ -171,9 +321,9 @@ class EHR_MODEL(nn.Module):
             # print('out_emb', out_emb.size())
 
             # lstm layer applied to embedded tensors
-            output_lstm_day= self.fc_day(\
+            output_lstm_day = self.drop(self.fc_day(\
                                     self.lstm_day(out_emb)[0]\
-                                        .reshape(batch_size, self.max_length * 2 * self.H))
+                                        .reshape(batch_size, self.max_length * 2 * self.H)))
 
             # print('output_lstm_day', output_lstm_day.size())                   
             # concatenate for all * days
@@ -194,56 +344,13 @@ class EHR_MODEL(nn.Module):
         return output
 
 
-# Save and Load Functions
-def save_checkpoint(save_path, model, optimizer, valid_loss):
+############################################ FUNCTIONS ###############################################
 
-    if save_path == None:
-        return
-    
-    state_dict = {'model_state_dict': model.state_dict(),
-                  'optimizer_state_dict': optimizer.state_dict(),
-                  'valid_loss': valid_loss}
-    
-    torch.save(state_dict, save_path)
-    print(f'Model saved to ==> {save_path}')
-
-
-def load_checkpoint(load_path, model, optimizer, device):
-
-    if load_path==None:
-        return
-    
-    state_dict = torch.load(load_path, map_location=device)
-    print(f'Model loaded from <== {load_path}')
-    
-    model.load_state_dict(state_dict['model_state_dict'])
-    optimizer.load_state_dict(state_dict['optimizer_state_dict'])
-    
-    return state_dict['valid_loss']
-
-def load_checkpoint(load_path, model, optimizer, device):
-
-    if load_path==None:
-        return
-    
-    state_dict = torch.load(load_path, map_location=device)
-    print(f'Model loaded from <== {load_path}')
-    
-    model.load_state_dict(state_dict['model_state_dict'])
-    optimizer.load_state_dict(state_dict['optimizer_state_dict'])
-    
-    return state_dict['valid_loss']
-
-
-def get_lr(optimizer):
-    for param_group in optimizer.param_groups:
-        return param_group['lr']
-
-
-def evaluate(model, test_loader, device, use_sigmoid, threshold=0.5, log_res=True):
+def evaluate(model, test_loader, device, threshold=None, log_res=True):
+    device = 'cpu'
     model = model.to(device)
     stacked_labels = torch.tensor([]).to(device)
-    stacked_preds = torch.tensor([]).to(device)
+    stacked_probs = torch.tensor([]).to(device)
     
     model.eval()
     step = 1
@@ -254,37 +361,71 @@ def evaluate(model, test_loader, device, use_sigmoid, threshold=0.5, log_res=Tru
             day_info = tensor_day.to(device)
             tensor_diags = tensor_diags.to(device)
 
-            output = model(day_info, tensor_diags)
-            if use_sigmoid:
-                output = nn.Sigmoid()(output)
-            output = (output > threshold).int()
+            probs = model(day_info, tensor_diags)
+            probs = nn.Sigmoid()(probs)
+            # output = (probs > threshold).int()
 
             # stacking labels and predictions
             stacked_labels = torch.cat([stacked_labels, labels], dim=0, )
-            stacked_preds = torch.cat([stacked_preds, output], dim=0, )
-
+            # stacked_preds = torch.cat([stacked_preds, output], dim=0, )
+            stacked_probs = torch.cat([stacked_probs, probs], dim=0, )
             step += 1
-
-    # calculate accuracy
-    acc = torch.round(torch.sum(stacked_labels==stacked_preds) / len(stacked_labels), decimals=2)
+            
     # transfer to device
     stacked_labels = stacked_labels.cpu().detach().numpy()
-    stacked_preds = stacked_preds.cpu().detach().numpy()
+    stacked_probs = stacked_probs.cpu().detach().numpy()
+
+    if threshold==None:
+        if stacked_labels.ndim > 1:
+            precision, recall, thresholds = precision_recall_curve(stacked_labels[:].sum(axis=1)>0, np.max(stacked_probs, axis=1))
+        else:
+            precision, recall, thresholds = precision_recall_curve(stacked_labels, stacked_probs)
+            
+        # convert to f score
+        fscore = np.round((2 * precision * recall) / precision + recall, 2)
+        # locate the index of the largest f score
+        ix = np.argmax(np.nan_to_num(fscore))
+        threshold = np.round(thresholds[ix], 2)
+        print('Best Threshold=%.2f, F-Score=%.2f' % (threshold, fscore[ix]))
+
+    stacked_preds = (stacked_probs > threshold).astype(int)
+    if stacked_labels.ndim > 1:
+        y_true = (stacked_labels[:].sum(axis=1)>0) 
+        y_pred = (stacked_preds[:].sum(axis=1)>0)
+    else:
+        y_true = stacked_labels
+        y_pred = stacked_preds
+
+    print(f'The threshold is {threshold}')
+
+    accuracy = np.round(accuracy_score(y_true, y_pred), 2)
+    print(f'Accuracy: {accuracy}')
+
+    f1_score_ = np.round(f1_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
+    print(f'F1: ', f1_score_)
+
+    recall_score_ = np.round(recall_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
+    print(f'Recall: ', recall_score_)
+
+    precision_score_ = np.round(precision_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
+    print(f'Precision: ', precision_score_)
+
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    specificity =  np.round(tn / (tn + fp), 2)
+    print(f'Specificity: ', specificity)
+
+    print(f'Confusion matrix:\n', confusion_matrix(y_true, y_pred))
+
+
+    if log_res:
+        wandb.log({'test_accuracy':accuracy, 'test_f1_score':f1_score_, 'test_recall_score':recall_score_, 'test_precision_score':precision_score_, 'test_specificity':specificity})
+
     # get classification metrics for all samples in the test set
     classification_report_res = classification_report(stacked_labels, stacked_preds, zero_division=0, output_dict=True)
     print(classification_report(stacked_labels, stacked_preds, zero_division=0, output_dict=False))
-    if log_res:
-        for k_day, v_day in classification_report_res.items():
-            if k_day is not 'accuracy':
-                for k, v in v_day.items():
-                    if k is not 'support':
-                        wandb.log({"test_" + k + k_day : v})
-                        # print("test_" + k +'_'+ k_day, v)
-            else:
-                # print('accuracy', v_day)
-                wandb.log({"test_" + k_day: v_day})
 
-    return classification_report_res, acc
+    return {'accuracy':accuracy, 'f1_score':f1_score_, 'recall_score':recall_score_, 'precision_score':precision_score_, 'specificity':specificity}
+
 
 
 def train(model, 
@@ -361,7 +502,7 @@ def train(model,
             wandb.log({'step_train_loss': loss.item(), 'global_step': global_step})
             
         # calculate accuracy
-        epoch_train_accuracy = torch.round(torch.sum(stacked_labels==stacked_preds) / len(stacked_labels), decimals=2)
+        # epoch_train_accuracy = torch.round(torch.sum(stacked_labels==stacked_preds) / len(stacked_labels), decimals=2)
         if scheduler is not None:
             scheduler.step()
             print(f'Learning rate is {get_lr(optimizer)}')
@@ -395,11 +536,10 @@ def train(model,
         # transfer to device
         stacked_labels = stacked_labels.cpu().detach().numpy()
         stacked_preds = stacked_preds.cpu().detach().numpy()
-        # calculate accuracy
-        epoch_val_accuracy = np.round(np.sum(stacked_labels==stacked_preds) / len(stacked_labels), 2)
+
         # get classification metrics for all samples in the test set
-        classification_report_res = classification_report(stacked_labels, stacked_preds, zero_division=0, output_dict=True)
-        classification_report_res.update({'epoch':epoch+1})
+        # classification_report_res = classification_report(stacked_labels, stacked_preds, zero_division=0, output_dict=True)
+        # classification_report_res.update({'epoch':epoch+1})
 
         # log the evaluation metrics 
         # for key, value in classification_report_res.items():
@@ -411,15 +551,15 @@ def train(model,
 
         train_loss_list.append(epoch_average_train_loss)
         valid_loss_list.append(epoch_average_valid_loss)
-        train_acc_list.append(epoch_train_accuracy)
-        valid_acc_list.append(epoch_val_accuracy)
+        # train_acc_list.append(epoch_train_accuracy)
+        # valid_acc_list.append(epoch_val_accuracy)
 
 
         global_steps_list.append(global_step)
         wandb.log({'epoch_average_train_loss': epoch_average_train_loss,
                     'epoch_average_valid_loss': epoch_average_valid_loss,
-                    'epoch_val_accuracy': epoch_val_accuracy, 
-                    'epoch_train_accuracy': epoch_train_accuracy,
+                    # 'epoch_val_accuracy': epoch_val_accuracy, 
+                    # 'epoch_train_accuracy': epoch_train_accuracy,
                     'epoch': epoch+1})
 
         # resetting running values
@@ -428,9 +568,9 @@ def train(model,
         
         
         # print progress
-        print('Epoch [{}/{}], Step [{}/{}], Train Loss: {:.4f}, Valid Loss: {:.4f}, Valid accuracy: {:.4f}'
+        print('Epoch [{}/{}], Step [{}/{}], Train Loss: {:.4f}, Valid Loss: {:.4f}'
                 .format(epoch+1, num_epochs, global_step, num_epochs*len(train_loader),
-                        epoch_average_train_loss, epoch_average_valid_loss, epoch_val_accuracy))    
+                        epoch_average_train_loss, epoch_average_valid_loss))   
 
         # checkpoint
         if best_valid_loss > epoch_average_valid_loss:
@@ -449,9 +589,10 @@ def train(model,
 
 
 
-def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-     use_gpu=True, project_name='test', pred_window=2, observing_window=3, weight_decay=0, BATCH_SIZE=128, LR=0.0001,\
-         min_frequency=1, hidden_size=128, drop=0.6, num_epochs=50, wandb_mode='online', PRETRAINED_PATH=None, run_id=None):
+######################## MAIN ###############################
+def main(saving_folder_name=None, additional_name='', criterion='BCELoss', small_dataset=False,\
+     use_gpu=True, project_name='test', experiment='test', pred_window=2, observing_window=3, weight_decay=0, BATCH_SIZE=128, LR=0.0001,\
+         min_frequency=1, hidden_size=128, drop=0.6, num_epochs=50, wandb_mode='online', PRETRAINED_PATH=None, run_id=None, checkpoint=None):
     # define the device
     if use_gpu:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -463,8 +604,8 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     PKL_PATH = CURR_PATH+'/pickles/'
     DF_PATH = CURR_PATH +'/dataframes/'
     TXT_DIR_TRAIN = CURR_PATH + '/txt_files/train'
-    # destination_folder = CURR_PATH + '/training/'
-    destination_folder = '/l/users/svetlana.maslenkova/LSTM/training_fixed_model/'
+    destination_folder = '/l/users/svetlana.maslenkova/models' + '/finetuning/whole_model/'
+    # destination_folder = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/training/'
 
     print(f'Current working directory is {CURR_PATH}')
 
@@ -477,7 +618,7 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
         print('Training tokenizer...')
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
         tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
-        tokenizer.pre_tokenizer = pre_tokenizers.Sequence([Whitespace(), Digits(individual_digits=False), Punctuation( behavior = 'removed')])
+        tokenizer.pre_tokenizer = Whitespace()
         trainer = BpeTrainer(special_tokens=["[PAD]", "[UNK]"], min_frequency=min_frequency)
         files = glob.glob(TXT_DIR_TRAIN+'/*')
         tokenizer.train(files, trainer)
@@ -501,8 +642,6 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     with open(DF_PATH + 'pid_test_df_finetuning_6days_aki.pkl', 'rb') as f:
         pid_test_df = pickle.load(f)
 
-    print('filtering admissions..')
-    # filter the admissions
 
     pid_train_df = pid_train_df[pid_train_df.hadm_id.isin(train_admissions)]
     pid_val_df = pid_val_df[pid_val_df.hadm_id.isin(val_admissions)]
@@ -532,21 +671,30 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     print('tensor_day', tensor_day.shape)
     print('tensor_labels', tensor_labels.shape)
 
-    # file_path = destination_folder + '/88087_no_weights-lr0.00005-adam'
-    
-    model = EHR_MODEL(vocab_size=vocab_size, max_length=max_length, device=device, pred_window=2, observing_window=3, drop=drop).to(device)
-
+    ## load pretrained model
     if PRETRAINED_PATH is not None:
-        model.load_state_dict(torch.load(PRETRAINED_PATH, map_location=device)['model_state_dict'])
-        model.embedding.weight.data = model.embedding.weight.data
+        pretrained_model =  EHR_PRETRAINING(max_length, vocab_size, device, pred_window=2, observing_window=3,  H=128, embedding_size=200, drop=drop).to(device)
+        pretrained_model.load_state_dict(torch.load(PRETRAINED_PATH, map_location=device)['model_state_dict'])
         print(f"Pretrained model loaded from <=== {PRETRAINED_PATH}")
 
-    optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=weight_decay)
-    # Decay LR by a factor of 0.1 every 7 epochs
-    # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-    exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[15,30, 50], gamma=0.1)
-    # exp_lr_scheduler = None
+    ## create the fine-tuning model and freeze pretrained parameters
+    model = EHR_MODEL(pretrained_model, max_length, vocab_size, device, pred_window=2, observing_window=3,  H=128, embedding_size=200, drop=0.6).to(device)
+    for num, (name, param) in enumerate(model.named_parameters()):
+        if num < 29:
+            param.requires_grad = False
+            print(f'Parameter {num}: {name}.requires_grad is set to {param.requires_grad}')
+        else:
+            print(f'Parameter {num}: {name}.requires_grad is set to {param.requires_grad}')
 
+
+    ## create optimizer
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=LR, weight_decay=weight_decay)
+    ## Decay LR by a factor of 0.1 every 7 epochs
+    # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[15,30,50], gamma=0.1)
+    exp_lr_scheduler = None
+
+    ## efine training parameters
     train_params = {
                     'model':model,
                     'device':device,
@@ -565,6 +713,7 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
 
     weights = ''
     use_sigmoid = True
+
     if criterion=='BCEWithLogitsLoss':
         #calculate weights
         print('Calculating class weights..')
@@ -576,10 +725,11 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
         use_sigmoid = False
 
 
-    # path for the model
+    # path for saving the model
     if saving_folder_name is None:
-        saving_folder_name = 'FX_NO_PRETRAINING_DIAGS_' + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_'  \
-            + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop)
+        saving_folder_name = 'FT_PRE_WHOLE_D_' + additional_name + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_'  \
+            + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) \
+                + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop)
     
     file_path = destination_folder + saving_folder_name
     train_params['file_path'] = file_path
@@ -587,30 +737,33 @@ def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
     print(f'\n\nMODEL PATH: {file_path}')
     if not os.path.exists(file_path):
         os.makedirs(file_path)
-    run_name = saving_folder_name
+    
 
     # wandb setup
     os.environ['WANDB_API_KEY'] = '8e859a0fc58f296096842a367ca532717d3b4059'
-    
+    run_name = saving_folder_name
     if run_id is None:    
         run_id = wandb.util.generate_id()  
         resume = 'allow' 
     else:
         resume = 'must'
+
+    if checkpoint is not None:
+        load_checkpoint(checkpoint, model, optimizer, device=device)
+
         
-    args = {'optimizer':optimizer, 'criterion':'BCELoss', 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':'no_pretraining', 'weight_decay':weight_decay, 'drop':drop}
+    args = {'optimizer':optimizer, 'criterion':'BCELoss', 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, 'pred_window':pred_window, 'experiment':experiment, 'weight_decay':weight_decay, 'drop':drop}
     wandb.init(project=project_name, name=run_name, mode=wandb_mode, config=args, id=run_id, resume=resume)
     print('Run id is: ', run_id)
 
     # training
     print('Training started..')
-    # print(f'With parameters: {train_params}')
     train(**train_params)
 
     # testing
     print('\nTesting the model...')
     load_checkpoint(file_path + '/model.pt', model, optimizer, device=device)
-    evaluate(model, test_loader, device, use_sigmoid, threshold=0.5, log_res=True)
+    evaluate(model, test_loader, device, threshold=None, log_res=True)
 
     wandb.finish()
 
@@ -665,11 +818,43 @@ print('val_admissions', len(val_admissions))
 print('test_admissions', len(test_admissions))
 
 
+################################################# RUNs ####################################################
 
+## test run
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/fc1_fixed/CL_WHOLE_FX__bs64_376k_lr1e-05_Adam_temp0.05_drop0.2/model.pt'
+# main(saving_folder_name='test_model', criterion='BCELoss', small_dataset=True,\
+#      use_gpu=False, project_name='test', pred_window=2, weight_decay=0, BATCH_SIZE=128  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
 
-########################################### RUNs ############################################
+# ## 37166: not filtered dataset
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/fc1_fixed/CL_WHOLE_FX__bs64_376k_lr1e-05_Adam_temp0.05_drop0.2/model.pt'
+# main(saving_folder_name=None, additional_name='_temp0.05_drop0.2_', criterion='BCELoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=128  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
 
-# test run
-main(saving_folder_name=None, criterion='BCELoss', small_dataset=True,\
-     use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=128, LR=1e-04,\
-         min_frequency=5, hidden_size=128, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+# # 37177
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/fc1_fixed/CL_WHOLE_FX__bs64_376k_lr1e-05_Adam_temp0.05_drop0.2/model.pt'
+# main(saving_folder_name=None, additional_name='_temp0.05_drop0.2_', criterion='BCELoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=128  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+
+# # 37182, continue 37204
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/fc1_fixed/CL_WHOLE_FX__bs64_376k_lr1e-05_Adam_temp0.1_drop0.2/model.pt'
+# checkpoint = '/l/users/svetlana.maslenkova/models/finetuning/embeddings/FT_PRE_WHOLE_D__temp0.1_drop0.2_10k_lr1e-05_h128_pw2_ow3_wd0__drop0.4/model.pt'
+# main(saving_folder_name=None, additional_name='_temp0.1_drop0.2_', criterion='BCELoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=128  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=500, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=checkpoint)
+
+# # # 37183, continue training 37203, 37205
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/fc1_fixed/CL_WHOLE_FX__bs64_376k_lr1e-05_Adam_temp0.05_drop0.1/model.pt'
+# checkpoint = '/l/users/svetlana.maslenkova/models/finetuning/embeddings/FT_PRE_WHOLE_D__temp0.05_drop0.1_10k_lr1e-05_h128_pw2_ow3_wd0__drop0.4/model.pt'
+# main(saving_folder_name=None, additional_name='_temp0.05_drop0.1_', criterion='BCELoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=128  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=500, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=checkpoint)
+
+# # # 37184, continue training 37201, 37206
+PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/fc1_fixed/CL_WHOLE_FX__bs64_376k_lr1e-05_Adam_temp0.1_drop0.1/model.pt'
+checkpoint = '/l/users/svetlana.maslenkova/models/finetuning/embeddings/FT_PRE_WHOLE_D__temp0.1_drop0.1_10k_lr1e-05_h128_pw2_ow3_wd0__drop0.4/model.pt'
+main(saving_folder_name=None, additional_name='_temp0.1_drop0.1_', criterion='BCELoss', small_dataset=False,\
+     use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=128  , LR=1e-05,\
+         min_frequency=5, hidden_size=128, drop=0.4, num_epochs=500, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=checkpoint)

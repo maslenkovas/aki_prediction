@@ -199,7 +199,7 @@ if fixed_model_with_diags:
                                 hidden_size=self.H,
                                 num_layers=2,
                                 batch_first=True,
-                                bidirectional=True)
+                                bidirectional=False)
 
             self.drop = nn.Dropout(p=drop)
             self.inner_drop = nn.Dropout(p=0.5)
@@ -207,7 +207,7 @@ if fixed_model_with_diags:
             # self.fc_2 = nn.Linear(self.H*2, 2)
             self.projection = nn.Sequential(
                 nn.ReLU(),
-                nn.Linear(in_features=self.H*2, out_features=256)
+                nn.Linear(in_features=self.H, out_features=256)
             )
 
         def forward(self, tensor_day, tensor_diagnoses):
