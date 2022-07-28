@@ -9,7 +9,11 @@ from torch.utils.data import Dataset, DataLoader
 from tokenizers import  Tokenizer
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
-from tokenizers.pre_tokenizers import Whitespace
+from tokenizers.pre_tokenizers import Punctuation, Whitespace
+from tokenizers.normalizers import Lowercase
+from tokenizers import pre_tokenizers, normalizers
+from tokenizers.processors import BertProcessing
+
 import glob
 from os.path import exists
 import os
@@ -23,9 +27,10 @@ import numpy as np
 # Global variables
 global fixed_model_with_diags
 global cont_model
-fixed_model_with_diags = True
+global new_fixed_model
+fixed_model_with_diags = False
 cont_model = False
-
+new_fixed_model = True
 
 
 class ContrastiveLoss(nn.Module):
@@ -627,6 +632,332 @@ elif cont_model:
 
         print('Finished training!')
 
+elif new_fixed_model:
+
+    # max_length = {'demographics':5, 'diagnoses':35, 'lab_tests':300, 'vitals':31, 'medications':256}
+    class MyDataset(Dataset):
+
+        def __init__(self, df, tokenizer, max_length, pred_window=2, observing_window=3):
+            self.df = df
+            self.tokenizer = tokenizer
+            self.observing_window = observing_window
+            self.pred_window = pred_window
+            self.max_length = max_length
+            # self.max_length_diags = 35
+
+            
+        def __len__(self):
+            return self.df.shape[0]
+
+        def __getitem__(self, idx):
+
+            return self.make_matrices(idx)
+        
+        def tokenize(self, text, max_length): 
+            
+            # max_length = max_length + 2
+            self.tokenizer.enable_truncation(max_length=max_length)
+
+            output = self.tokenizer.encode(text)
+
+            # padding and truncation
+            if len(output.ids) < max_length:
+                len_missing_token = max_length - len(output.ids)
+                padding_vec = [self.tokenizer.token_to_id('PAD') for _ in range(len_missing_token)]
+                token_output = [*output.ids, *padding_vec]
+            elif len(output.ids) > max_length:
+                token_output = output.ids[:max_length]
+            else:
+                token_output = output.ids
+            
+            return token_output
+
+        def make_matrices(self, idx):
+            
+            hadm_id = self.df.hadm_id.values[idx]
+            diagnoses_info = self.df.previous_diagnoses.values[idx]
+            demo_info = self.df.demographics_in_visit.values[idx][0]
+            lab_info = self.df.lab_tests_in_visit.values[idx]
+            med_info = self.df.medications_in_visit.values[idx]
+            vitals_info = self.df.vitals_in_visit.values[idx]
+            
+            # aki_status = self.df.aki_status_in_visit.values[idx]
+            days = self.df.days.values[idx]
+            # print(idx)
+
+            lab_info_list = []
+            med_info_list = []
+            vitals_info_list = []
+            label = None
+
+            for day in range(days[0], days[0] + self.observing_window + self.pred_window):
+                # print('day', day)
+                if day not in days:
+                    vitals_info_list.append(self.tokenize('', self.max_length['vitals']))
+                    lab_info_list.append(self.tokenize('', self.max_length['lab_tests']))
+                    med_info_list.append(self.tokenize('', self.max_length['medications']))
+
+                else:
+                    i = days.index(day)
+                    
+                    # vitals
+                    if (str(vitals_info[i]) == 'nan') or (vitals_info[i] == np.nan):
+                        vitals_info_list.append(self.tokenize('PAD', self.max_length['vitals']))
+                    else:
+                        vitals_info_list.append(self.tokenize(vitals_info[i], self.max_length['vitals']))
+
+                    # lab results
+                    if (str(lab_info[i]) == 'nan') or (lab_info[i] == np.nan):
+                        lab_info_list.append(self.tokenize('PAD', self.max_length['lab_tests']))
+                    else:
+                        lab_info_list.append(self.tokenize(lab_info[i], self.max_length['lab_tests']))
+                    
+                    # medications
+                    if (str(med_info[i]) == 'nan') or (med_info[i] == np.nan):
+                        med_info_list.append(self.tokenize('PAD', self.max_length['medications']))
+                    else:
+                        med_info_list.append(self.tokenize(med_info[i], self.max_length['medications']))
+
+            # diagnoses
+            if (str(diagnoses_info) == 'nan') or (diagnoses_info == np.nan):
+                diagnoses_info = self.tokenize('PAD', self.max_length['diagnoses'])
+            else:
+                diagnoses_info = self.tokenize(diagnoses_info, self.max_length['diagnoses'])
+
+            # demographics
+            if (str(demo_info) == 'nan') or (demo_info == np.nan):
+                demo_info = self.tokenize('PAD', self.max_length_diags)
+            else:
+                demo_info = self.tokenize(demo_info, self.max_length['demographics'])
+
+            #make tensors
+            tensor_demo = torch.tensor(demo_info, dtype=torch.int64)
+            tensor_diags = torch.tensor(diagnoses_info, dtype=torch.int64)
+            tensor_vitals = torch.tensor(vitals_info_list, dtype=torch.int64)
+            tensor_labs = torch.tensor(lab_info_list, dtype=torch.int64)
+            tensor_meds = torch.tensor(med_info_list, dtype=torch.int64)
+            # tensor_labels = torch.tensor(label, dtype=torch.float64)
+        
+            return tensor_demo, tensor_diags, tensor_vitals, tensor_labs, tensor_meds, hadm_id
+
+    
+    class EHR_PRETRAINING(nn.Module):
+        def __init__(self, max_length, vocab_size, device, pred_window=2, observing_window=3,  H=128, embedding_size=200, drop=0.6):
+            super(EHR_PRETRAINING, self).__init__()
+
+            self.observing_window = observing_window
+            self.pred_window = pred_window
+            self.H = H
+            self.max_length_demo = max_length['demographics']
+            self.max_length_diags = max_length['diagnoses']
+            self.max_length_meds = max_length['medications']
+            self.max_length_vitals = max_length['vitals']
+            self.max_length_lab = max_length['lab_tests']
+            self.embedding_size = embedding_size
+            self.vocab_size = vocab_size
+            self.device = device
+            self.drop = drop
+
+            # self.embedding = pretrained_model
+            self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
+
+            self.lstm_day = nn.LSTM(input_size=embedding_size,
+                                hidden_size=self.H,
+                                num_layers=1,
+                                batch_first=True,
+                                bidirectional=True)
+
+            self.fc_med = nn.Linear(self.max_length_meds * 2 * self.H, 2048)
+            self.fc_vitals = nn.Linear(self.max_length_vitals * 2 * self.H, 2048)
+            self.fc_lab = nn.Linear(self.max_length_lab * 2 * self.H, 2048)
+
+            self.fc_adm = nn.Linear(2 * self.H * (self.max_length_diags + self.max_length_demo) \
+                                    + self.observing_window * 3 * 2048 , 2048)
+
+            self.lstm_adm = nn.LSTM(input_size=2048,
+                                hidden_size=self.H,
+                                num_layers=2,
+                                batch_first=True,
+                                bidirectional=False)
+
+            self.drop = nn.Dropout(p=drop)
+            self.inner_drop = nn.Dropout(p=0.5)
+
+            # self.fc_2 = nn.Linear(self.H*2, 2)
+            self.projection = nn.Sequential(
+                nn.ReLU(),
+                nn.Linear(in_features=self.H, out_features=256)
+            )
+
+        def forward(self, tensor_demo, tensor_diags, tensor_med, tensor_vitals, tensor_labs):
+
+            batch_size = tensor_demo.size()[0]
+
+            # embeddings
+            out_emb_diags = self.embedding(tensor_diags.squeeze(1)) # [16, 37, 200]
+            out_emb_demo =  self.embedding(tensor_demo.squeeze(1))  # [16, 7, 200]
+            # print(f'out_emb_diags: ', out_emb_diags.size())
+            # print(f'out_emb_demo: ', out_emb_demo.size())
+            # lstm for demographic and diagnoses
+            out_lstm_diags, _ = self.lstm_day(out_emb_diags)    # [16, 37, 256]
+            out_lstm_demo, _ = self.lstm_day(out_emb_demo)      # [16, 7, 256]
+            # print(f'out_lstm_diags: ', out_lstm_diags.size())
+            # print(f'out_lstm_demo: ', out_lstm_demo.size())
+            # reshape and concat demographics and diags
+            out_lstm_diags_reshaped = out_lstm_diags.reshape(batch_size, self.max_length_diags * 2 * self.H)
+            out_lstm_demo_reshaped = out_lstm_demo.reshape(batch_size, self.max_length_demo * 2 * self.H)
+            # print(f'out_lstm_diags_reshaped', out_lstm_diags_reshaped.size())
+            # print(f'out_lstm_demo_reshaped', out_lstm_demo_reshaped.size())
+            full_output = torch.cat([out_lstm_demo_reshaped, out_lstm_diags_reshaped], dim=1)   # [16, 11264]
+            # print(f'full_output', full_output.size())
+
+            for d in range(self.observing_window):
+                # embedding layer applied to all tensors 
+                out_med_emb = self.embedding(tensor_med[:, d, :].squeeze(1))
+                out_vitals_emb = self.embedding(tensor_vitals[:, d, :].squeeze(1))
+                out_labs_emb = self.embedding(tensor_labs[:, d, :].squeeze(1))
+                # print('out_med_emb', out_med_emb.size())
+                # print('out_vitals_emb', out_vitals_emb.size())
+                # print('out_labs_emb', out_labs_emb.size())
+
+                # lstm layer applied to embedded tensors
+                output_lstm_med = self.inner_drop(self.fc_med(\
+                                                    self.lstm_day(out_med_emb)[0]\
+                                                        .reshape(batch_size, self.max_length_meds * 2 * self.H)))
+                output_lstm_vitals = self.inner_drop(self.fc_vitals(\
+                                                    self.lstm_day(out_vitals_emb)[0]\
+                                                        .reshape(batch_size, self.max_length_vitals * 2 * self.H)))
+                output_lstm_labs = self.inner_drop(self.fc_lab(\
+                                                    self.lstm_day(out_labs_emb)[0]\
+                                                        .reshape(batch_size, self.max_length_lab * 2 * self.H)))
+
+                # print('output_lstm_med', output_lstm_med.size())                   
+                # print('output_lstm_vitals', output_lstm_vitals.size())                   
+                # print('output_lstm_labs', output_lstm_labs.size())    
+                # print('--------------')               
+                # concatenate for all * days
+                full_output = torch.cat((full_output, \
+                                            output_lstm_med,\
+                                                output_lstm_vitals,\
+                                                    output_lstm_labs), dim=1) # 
+
+            # print('full_output size: ', full_output.size(), '\n')
+            output = self.fc_adm(full_output)
+            # print('fc_adm: ', output.size(), '\n')
+            output_vector, _ = self.lstm_adm(output)
+            # print('output_vector: ', output_vector.size(), '\n')
+
+            # the fisrt transformation
+            output_vector_X = self.drop(output_vector)
+            projection_X = self.projection(output_vector_X)
+            # the second transformation
+            output_vector_Y = self.drop(output_vector)
+            projection_Y = self.projection(output_vector_Y)
+
+
+            return output_vector_X, projection_X, output_vector_Y, projection_Y
+    
+    def train(model,
+            optimizer,
+            train_loader,
+            valid_loader,
+            batch_size,
+            file_path,
+            embedding_size,
+            device='cpu',
+            num_epochs=2,
+            epoch_patience=10,
+            best_valid_loss = float("Inf"),
+            dimension=128,
+            save_model=True,
+            temperature=0.1):
+
+        
+        train_running_loss = 0.0
+        valid_running_loss = 0.0
+        train_loss_list = []
+        valid_loss_list = []
+        total_train_steps = len(train_loader)
+        total_val_steps = len(valid_loader)
+        stop_training = 0
+
+
+        for epoch in range(num_epochs):
+                model.train()
+                train_step = 1
+                print(f'Epoch {epoch+1}/{num_epochs} training..')
+                criterion = ContrastiveLoss(batch_size=batch_size, device=device, temperature=temperature)
+
+                for  tensor_demo, tensor_diags, tensor_vitals, tensor_labs, tensor_meds, idx in train_loader:
+                    if train_step % 100==0:
+                        print(f'Step {train_step}/{total_train_steps}')
+                    # print(f'Step {train_step}/{total_train_steps}')
+
+                    vector_X, projectionX, vector_Y, projectionY = model(tensor_demo.to(device), tensor_diags.to(device),\
+                                                                        tensor_meds.to(device), tensor_vitals.to(device),\
+                                                                        tensor_labs.to(device))
+                                            
+                    if train_step >= total_train_steps:
+                            new_batch_size = projectionX.size()[0]
+                            criterion = ContrastiveLoss(batch_size=new_batch_size, device=device, temperature=temperature)
+                    
+                    loss = criterion(projectionX.type(torch.float32), projectionY.type(torch.float32))
+                    #   print(loss.item())
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+
+                    train_running_loss += loss.item()
+                    train_step += 1
+
+                    wandb.log({'step_train_loss': loss.item(), 'global_step': train_step})
+
+                epoch_average_train_loss = train_running_loss / len(train_loader)  
+
+                model.eval()
+                val_step = 1
+                print(f"Validation started..")
+                criterion = ContrastiveLoss(batch_size=batch_size, device=device, temperature=temperature)
+                with torch.no_grad():
+                    for tensor_demo, tensor_diags, tensor_vitals, tensor_labs, tensor_meds, idx in valid_loader:
+                            vector_X, projectionX, vector_Y, projectionY = model(tensor_demo.to(device), tensor_diags.to(device),\
+                                                                        tensor_meds.to(device), tensor_vitals.to(device),\
+                                                                        tensor_labs.to(device))
+
+                            if val_step >= total_val_steps:
+                                new_batch_size = projectionX.size()[0]
+                                criterion = ContrastiveLoss(batch_size=new_batch_size, device=device, temperature=temperature)
+                                                
+                            loss = criterion(projectionX.type(torch.float32), projectionY.type(torch.float32))
+
+                            valid_running_loss += loss.item()
+                            val_step += 1
+                            
+
+                epoch_average_val_loss = valid_running_loss / len(valid_loader)
+
+                train_running_loss = 0.0
+                valid_running_loss = 0.0
+
+                print(f'Train loss {epoch_average_train_loss}, Validation loss {epoch_average_val_loss}')
+
+                wandb.log({'epoch_average_train_loss':epoch_average_train_loss, 'epoch_average_val_loss':epoch_average_val_loss, 'epoch':epoch+1})
+                
+                # checkpoint
+                if best_valid_loss > epoch_average_val_loss and save_model:
+                    print(f'Validation loss decreased {best_valid_loss}==>{epoch_average_val_loss}')
+                    best_valid_loss = epoch_average_val_loss
+                    save_checkpoint(file_path + '/model.pt', model, optimizer, best_valid_loss)
+                    wandb.save(file_path + '/model.pt')
+                    stop_training = 0
+                else:
+                    stop_training +=1
+                
+                if stop_training == epoch_patience:
+                    break
+
+        print('Finished training!')
+
 
 def main(project_name, num_epochs, pred_window, max_day, PRETRAINED_PATH=None, drop=0.1, \
     temperature=0.5, embedding_size=200, min_frequency=1, BATCH_SIZE=16, small_dataset=True, \
@@ -654,16 +985,24 @@ def main(project_name, num_epochs, pred_window, max_day, PRETRAINED_PATH=None, d
     else:
         print('Training tokenizer...')
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
-        tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
-        tokenizer.pre_tokenizer = Whitespace()
-        trainer = BpeTrainer(special_tokens=["[PAD]", "[UNK]"], min_frequency=min_frequency)
-        files = glob.glob(TXT_DIR_TRAIN+'/*')
+        tokenizer = Tokenizer(BPE(unk_token="UNK"))
+        tokenizer.normalizer = normalizers.Sequence([Lowercase()])
+        # tokenizer.pre_tokenizer = pre_tokenizers.Sequence([Whitespace(), Digits(individual_digits=False), Punctuation( behavior = 'removed')])
+        tokenizer.pre_tokenizer = pre_tokenizers.Sequence([Whitespace(), Punctuation(behavior = 'isolated')])
+
+        trainer = BpeTrainer(special_tokens=["<s>", "</s>", "PAD", "UNK", "$"], min_frequency=min_frequency)
+
+        files = glob.glob('/home/svetlana.maslenkova/LSTM/aki_prediction/txt_files/train'+'/*')
         tokenizer.train(files, trainer)
+        tokenizer.post_processor = BertProcessing(
+                ("</s>", tokenizer.token_to_id("</s>")),
+                ("<s>", tokenizer.token_to_id("<s>")), 
+                )
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
-        print(f'Vocab size is {tokenizer.get_vocab_size()}')
 
     # variables for classes
-    max_length = {'demographics':5, 'lab_tests':400, 'vitals':200, 'medications':255}
+    # max_length = {'demographics':5, 'lab_tests':400, 'vitals':200, 'medications':255}
+    max_length = {'demographics':5+2, 'diagnoses':35+2, 'lab_tests':300+2, 'vitals':31+2, 'medications':256+2}
     vocab_size = tokenizer.get_vocab_size()
     print(f'Vocab size: {vocab_size}')
 
@@ -673,9 +1012,9 @@ def main(project_name, num_epochs, pred_window, max_day, PRETRAINED_PATH=None, d
     with open(DF_PATH + 'pid_val_df_pretraining.pkl', 'rb') as f:
         pid_val_df = pickle.load(f)
 
-    if small_dataset: frac=0.0001
+    if small_dataset: frac=0.0001 
     else: frac=1
-
+    
     pid_train_df_small = pid_train_df.sample(frac=frac)
     pid_val_df_small = pid_val_df.sample(frac=frac)
 
@@ -693,6 +1032,13 @@ def main(project_name, num_epochs, pred_window, max_day, PRETRAINED_PATH=None, d
         val_dataset = MyDataset(pid_val_df_small, tokenizer=tokenizer, max_length=max_length)
         val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
+    elif new_fixed_model:
+        train_dataset = MyDataset(pid_train_df.sample(frac=frac), tokenizer=tokenizer, max_length=max_length)
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+        val_dataset = MyDataset(pid_val_df.sample(frac=frac), tokenizer=tokenizer, max_length=max_length)
+        val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
+
     print('DATA SHAPES: ')
     print('train data shape: ', len(train_loader)*BATCH_SIZE)
     print('val data shape: ', len(val_loader)*BATCH_SIZE)
@@ -701,6 +1047,8 @@ def main(project_name, num_epochs, pred_window, max_day, PRETRAINED_PATH=None, d
         model = EHR_PRETRAINING(max_length=400, vocab_size=vocab_size, device=device).to(device)
     elif cont_model:
         model = EHR_model(embedding_size=embedding_size, vocab_size=vocab_size, max_length=max_length, pred_window=pred_window, max_day=max_day, drop=0.1).to(device)
+    elif new_fixed_model:
+        model = EHR_PRETRAINING(max_length=max_length, vocab_size=vocab_size, device=device, pred_window=2, observing_window=3,  H=128, embedding_size=200, drop=0.6).to(device)
     
     optimizer = optim.Adam(model.parameters(), lr=LR)
     # Decay LR by a factor of 0.1 every 7 epochs
@@ -709,7 +1057,6 @@ def main(project_name, num_epochs, pred_window, max_day, PRETRAINED_PATH=None, d
     if PRETRAINED_PATH is not None:
         load_checkpoint(PRETRAINED_PATH, model, optimizer, device=device)
     
-
     train_params = {'model':model,
                     'optimizer':optimizer,
                     'train_loader':train_loader,
@@ -726,7 +1073,7 @@ def main(project_name, num_epochs, pred_window, max_day, PRETRAINED_PATH=None, d
     num_samples = (len(train_loader)+len(val_loader))*BATCH_SIZE // 1000
 
     if saving_folder_name is None:
-        saving_folder_name = 'CL_WHOLE_FX_' + '_bs' + str(BATCH_SIZE) +'_' + str(num_samples) + 'k' + '_lr'+ str(LR) + '_Adam' + '_temp' + str(temperature) + '_drop' + str(drop)
+        saving_folder_name = 'CL_WHOLE_FX_ND_' + '_bs' + str(BATCH_SIZE) +'_' + str(num_samples) + 'k' + '_lr'+ str(LR) + '_Adam' + '_temp' + str(temperature) + '_drop' + str(drop)
     file_path = destination_folder + saving_folder_name
     train_params['file_path'] = file_path
 
@@ -736,11 +1083,9 @@ def main(project_name, num_epochs, pred_window, max_day, PRETRAINED_PATH=None, d
         
     run_name = saving_folder_name
     print('Run name: ', run_name)
-    args = {'optimizer':optimizer, 'LR':LR, 'min_frequency':min_frequency, 'dropout':drop, \
-        'vocab_size':vocab_size, 'embedding_size':embedding_size, 'pretrained':'FC1', \
-            'temperature':temperature, 'batch_size':BATCH_SIZE,  'experiment':'FX_DIAGS', \
-                'pretrained':'whole'}
-
+    args = {'optimizer':'Adam', 'LR':LR, 'min_frequency':min_frequency, 'dropout':drop, \
+        'vocab_size':vocab_size, 'embedding_size':embedding_size, 'pretrained':'lstm_adm', \
+            'temperature':temperature, 'batch_size':BATCH_SIZE,  'experiment':'FX_DIAGS_ND'}
 
     if run_id is None:    
         run_id = wandb.util.generate_id()  
@@ -813,8 +1158,31 @@ def main(project_name, num_epochs, pred_window, max_day, PRETRAINED_PATH=None, d
 #         LR=0.00001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
 #             run_id=None)
 
-# # 35427: drop=0.2, t=0.05
-main(project_name='Contrastive-loss-pretraining', num_epochs=20, pred_window=None, max_day=None, PRETRAINED_PATH=None, drop=0.2, \
-    temperature=0.05, embedding_size=200, min_frequency=5, BATCH_SIZE=64, small_dataset=False, \
+# # # 35427: drop=0.2, t=0.05
+# main(project_name='Contrastive-loss-pretraining', num_epochs=20, pred_window=None, max_day=None, PRETRAINED_PATH=None, drop=0.2, \
+#     temperature=0.05, embedding_size=200, min_frequency=5, BATCH_SIZE=64, small_dataset=False, \
+#         LR=0.00001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
+#             run_id=None)
+
+
+#####################################################################################################################
+        ######## Fixed model with diags pretraining experiments NEW DATASET CLASS, NEW TOKENIZER ###########
+#####################################################################################################################
+
+# # # test run
+# main(project_name='test', num_epochs=1, pred_window=None, max_day=None, PRETRAINED_PATH=None, drop=0.1, \
+#     temperature=0.1, embedding_size=200, min_frequency=5, BATCH_SIZE=128, small_dataset=True, \
+#         LR=0.00001, save_model=True, use_gpu=False, saving_folder_name='test', wandb_mode = 'disabled', \
+#             run_id=None)
+
+# # 39072: bs 512
+# main(project_name='Contrastive-loss-pretraining', num_epochs=50, pred_window=None, max_day=None, PRETRAINED_PATH=None, drop=0.1, \
+#     temperature=0.1, embedding_size=200, min_frequency=10, BATCH_SIZE=512, small_dataset=False, \
+#         LR=0.00001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
+#             run_id=None)
+
+# 39076: bs 800
+main(project_name='Contrastive-loss-pretraining', num_epochs=50, pred_window=None, max_day=None, PRETRAINED_PATH=None, drop=0.1, \
+    temperature=0.1, embedding_size=200, min_frequency=10, BATCH_SIZE=800, small_dataset=False, \
         LR=0.00001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
             run_id=None)
