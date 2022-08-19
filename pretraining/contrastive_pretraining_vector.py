@@ -49,8 +49,7 @@ class ContrastiveLoss(nn.Module):
         z_i = F.normalize(emb_i, dim=1)
         z_j = F.normalize(emb_j, dim=1)
 
-        representations = torch.cat([z_i, z_j], dim=0)
-        
+        representations = torch.cat([z_i, z_j], dim=0)      
         similarity_matrix = F.cosine_similarity(representations.unsqueeze(1), representations.unsqueeze(0), dim=2)
         
         sim_ij = torch.diag(similarity_matrix, self.batch_size)

@@ -93,21 +93,22 @@ def load_metrics(load_path):
     
     return state_dict['train_loss_list'], state_dict['valid_loss_list'], state_dict['global_steps_list']
 
-def calculate_class_weights(data_loader):
-    labels = np.array([])
-    for tensor_day, tensor_diags, tensor_labels, idx in data_loader:
-        labels = np.concatenate([labels, tensor_labels], axis=0) if labels.size else tensor_labels
-    n_pos = np.sum(labels==1, axis=0)
-    n_neg = np.sum(labels==0, axis=0)
-    pos_weight = np.round(n_neg / n_pos, 2)
-    
-    return pos_weight
 
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
 if fixed_model_with_diags:
+
+    def calculate_class_weights(data_loader):
+        labels = np.array([])
+        for tensor_day, tensor_diags, tensor_labels, idx in data_loader:
+            labels = np.concatenate([labels, tensor_labels], axis=0) if labels.size else tensor_labels
+        n_pos = np.sum(labels==1, axis=0)
+        n_neg = np.sum(labels==0, axis=0)
+        pos_weight = np.round(n_neg / n_pos, 2)
+        
+        return pos_weight
     ########################################### DATASET #################################################
     class MyDataset(Dataset):
 
@@ -594,6 +595,15 @@ if fixed_model_with_diags:
         print('Finished Training!')
 
 if new_fixed_model:
+    def calculate_class_weights(data_loader):
+        labels = np.array([])
+        for (tensor_demo, tensor_diags, tensor_vitals, tensor_labs, tensor_meds), hadm_id, tensor_labels in data_loader:
+            labels = np.concatenate([labels, tensor_labels], axis=0) if labels.size else tensor_labels
+        n_pos = np.sum(labels==1, axis=0)
+        n_neg = np.sum(labels==0, axis=0)
+        pos_weight = np.round(n_neg / n_pos, 2)
+        
+        return pos_weight
     ########################################### DATASET #################################################
     class MyDataset(Dataset):
 
@@ -918,7 +928,7 @@ if new_fixed_model:
 
 ############################################ FUNCTIONS ###############################################
 
-    def evaluate(model, test_loader, device, threshold=None, log_res=True):
+    def evaluate(model, test_loader, device, calculate_threshold=True, threshold=None, log_res=True):
         print('Evaluation..')
         def find_nearest(array, value):
             array = np.asarray(array)
@@ -957,67 +967,73 @@ if new_fixed_model:
         stacked_labels = stacked_labels.cpu().detach().numpy()
         stacked_probs = stacked_probs.cpu().detach().numpy()
 
-        if threshold==None:
-            for w in range(stacked_labels.ndim):
-                pred_window = (w+1)*24
+        for w in range(stacked_labels.ndim):
+            pred_window = (w+1)*24
+            print('--------------- ', str(pred_window)+'h', '--------------- ')
 
-                precision, recall, thresholds = precision_recall_curve(stacked_labels.T[w], stacked_probs.T[w])
-                precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
-                
-                # convert to f score
-                fscore = np.round((2 * precision * recall) / (precision + recall), 2)
-
+            precision, recall, thresholds = precision_recall_curve(stacked_labels.T[w], stacked_probs.T[w])
+            precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
+            
+            # convert to f score
+            fscore = np.round((2 * precision * recall) / (precision + recall), 2)
+            
+            if calculate_threshold:
                 # locate the index of the largest f score
                 ix = np.argmax(np.nan_to_num(fscore))
                 threshold = np.round(thresholds[ix], 2)
-                print('--------------- ', str(pred_window)+'h', '--------------- ')
                 print('Best Threshold=%.2f, F-Score=%.2f' % (threshold, fscore[ix]))
+            else:
+                if threshold==None:
+                    print(f'No threshold')
 
-                stacked_preds = (stacked_probs.T[w] > threshold).astype(int)
-                y_true = stacked_labels.T[0]
-                y_pred = stacked_preds
+            stacked_preds = (stacked_probs.T[w] > threshold).astype(int)
+            y_true = stacked_labels.T[w]
+            y_pred = stacked_preds
 
-                accuracy = np.round(accuracy_score(y_true, y_pred), 2)
-                print(f'Accuracy: {accuracy}')
+            accuracy = np.round(accuracy_score(y_true, y_pred), 2)
+            print(f'Accuracy: {accuracy}')
 
-                f1_score_ = np.round(f1_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
-                print(f'F1: ', f1_score_)
+            f1_score_ = np.round(f1_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
+            print(f'F1: ', f1_score_)
 
-                recall_score_ = np.round(recall_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
-                print(f'Sensitivity: ', recall_score_)
+            recall_score_ = np.round(recall_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
+            print(f'Sensitivity: ', recall_score_)
 
-                precision_score_ = np.round(precision_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
-                print(f'Precision: ', precision_score_)
+            precision_score_ = np.round(precision_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
+            print(f'Precision: ', precision_score_)
 
-                tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-                specificity =  np.round(tn / (tn + fp), 2)
-                print(f'Specificity: ', specificity)
+            tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+            specificity =  np.round(tn / (tn + fp), 2)
+            print(f'Specificity: ', specificity)
 
-                pr_auc = np.round(auc(recall, precision), 2) 
-                print(f'PR AUC: ', pr_auc)
+            pr_auc = np.round(auc(recall, precision), 2) 
+            print(f'PR AUC: ', pr_auc)
 
-                roc_auc = np.round(roc_auc_score(y_true, y_pred), 2)
-                print(f'ROC AUC: ', roc_auc)
+            roc_auc = np.round(roc_auc_score(y_true, y_pred), 2)
+            print(f'ROC AUC: ', roc_auc, '\n')
+            
+            precision_list = [0.2, 0.25, 0.33, 0.4, 0.5, 0.6, 0.75]
+            for p in precision_list:
+                idx = find_nearest(precision, p)
+                sensitivity = recall[idx]
+                if idx != len(thresholds):
+                    print(f'Precision {np.round(precision[idx]*100, 1)}%, Sensitivity {sensitivity}, Threshold {thresholds[idx]}')
+                else:
+                    print(f'Precision {np.round(precision[idx]*100, 1)}%, Sensitivity {sensitivity}, Threshold ')
 
-                precision_list = [0.2, 0.25, 0.33, 0.4, 0.5, 0.6, 0.75]
-                for p in precision_list:
-                    idx = find_nearest(precision, p)
-                    sensitivity = recall[idx]
-                    print(f'Precision {np.round(precision[idx]*100, 1)}% , Sensitivity {sensitivity} ')
-
-                print(f'Confusion matrix:\n', confusion_matrix(y_true, y_pred))
+            print(f'Confusion matrix:\n', confusion_matrix(y_true, y_pred))
 
 
-                if log_res:
-                    wandb.log({'test_accuracy'+str(pred_window) :accuracy, 'test_f1_score'+str(pred_window):f1_score_, \
-                                'test_recall_score'+str(pred_window):recall_score_, 'test_precision_score'+str(pred_window):precision_score_, \
-                                    'test_specificity'+str(pred_window):specificity})
+            if log_res:
+                wandb.log({'test_accuracy'+str(pred_window) :accuracy, 'test_f1_score'+str(pred_window):f1_score_, \
+                            'test_recall_score'+str(pred_window):recall_score_, 'test_precision_score'+str(pred_window):precision_score_, \
+                                'test_specificity'+str(pred_window):specificity})
 
-                # get classification metrics for all samples in the test set
-                classification_report_res = classification_report(y_true, y_pred, zero_division=0, output_dict=True)
-                print(classification_report(y_true, y_pred, zero_division=0, output_dict=False))
+            # get classification metrics for all samples in the test set
+            classification_report_res = classification_report(y_true, y_pred, zero_division=0, output_dict=True)
+            print(classification_report(y_true, y_pred, zero_division=0, output_dict=False))
 
-        return 
+        return stacked_labels, stacked_probs
 
 
 ############################################### TRAIN #################################################
@@ -1161,7 +1177,8 @@ if new_fixed_model:
                 specificity =  np.round(tn / (tn + fp), 2)
                 pr_auc = np.round(auc(recall, precision), 2)
                 wandb.log({'val_f1_score_'+str(pred_window): f1_score_, 'val_recall_score_'+str(pred_window):recall_score_, \
-                            'val_specificity'+str(pred_window):specificity, 'val_pr_auc'+str(pred_window):pr_auc})
+                            'val_specificity'+str(pred_window):specificity, 'val_pr_auc'+str(pred_window):pr_auc,\
+                                'epoch': epoch+1})
 
             global_steps_list.append(global_step)
             wandb.log({'epoch_average_train_loss': epoch_average_train_loss,
@@ -1195,7 +1212,7 @@ if new_fixed_model:
 
 
 ######################## MAIN ###############################
-def main(saving_folder_name=None, additional_name='', criterion='BCELoss', small_dataset=False,\
+def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_weight=None, small_dataset=False,\
      use_gpu=True, project_name='test', experiment='test', pred_window=2, observing_window=3, weight_decay=0, BATCH_SIZE=128, LR=0.0001,\
          min_frequency=1, hidden_size=128, drop=0.6, num_epochs=50, wandb_mode='online', PRETRAINED_PATH=None, run_id=None, checkpoint=None):
     # define the device
@@ -1283,9 +1300,9 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', small
     # tensor_day, tensor_labels, = next(iter(train_loader))
     # tensor_day, tensor_diags, tensor_labels, idx = next(iter(train_loader))
     print('\n\n DATA SHAPES: ')
-    print('train data shape: ', pid_train_df.shape)
-    print('val data shape: ', pid_val_df.shape)
-    print('test data shape: ', pid_test_df.shape)
+    print('train data shape: ', len(train_dataset))
+    print('val data shape: ', len(val_dataset))
+    print('test data shape: ', len(val_dataset))
 
 
     ## load pretrained model
@@ -1301,9 +1318,13 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', small
     
     for num, (name, param) in enumerate(model.named_parameters()):
         if num < 17:
-            param.requires_grad = False
+            if experiment == 'no_pretraining':
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
             print(f'Parameter {num}: {name}.requires_grad == {param.requires_grad}')
         else:
+            param.requires_grad = True
             print(f'Parameter {num}: {name}.requires_grad == {param.requires_grad}')
 
     ## create optimizer
@@ -1336,16 +1357,17 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', small
     if criterion=='BCEWithLogitsLoss':
         #calculate weights
         print('Calculating class weights..')
-        pos_weight = torch.tensor(calculate_class_weights(train_loader))
+        if pos_weight==None:
+            pos_weight = torch.tensor(calculate_class_weights(train_loader))
         print(f'Calss weights are {pos_weight}')
-        pos_weight = pos_weight.to(device)
+        pos_weight = torch.tensor(pos_weight, dtype=torch.int64).to(device)
         train_params['pos_weight'] = pos_weight
         weights = 'with_weights'
         use_sigmoid = False
 
     # path for saving the model
     if saving_folder_name is None:
-        saving_folder_name = 'FT_' + experiment + str(len(train_loader)*BATCH_SIZE // 1000) + 'k_'  \
+        saving_folder_name = 'FT_' + experiment + str(len(train_dataset) // 1000) + 'k_'  \
             + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) \
                 + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop)
     
@@ -1497,15 +1519,39 @@ print('test_admissions', len(test_admissions))
 #      use_gpu=True, project_name='Fixed_obs_window_model', experiment='pretrained', pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05,\
 #          min_frequency=10, hidden_size=128, drop=0.5, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
 
-# # 39236(wrond labels), 39456
+# # # 39236(wrond labels), 39456, 39585
 # PRETRAINED_PATH = None
-# main(saving_folder_name=None, experiment='NOPRE', criterion='BCELoss', small_dataset=False,\
-#      use_gpu=True, project_name='Fixed_obs_window_model', experiment='no_pretraining', pred_window=2, weight_decay=0, BATCH_SIZE=2048  , LR=1e-05,\
+# main(saving_folder_name=None, experiment='no_pretraining', criterion='BCELoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=2048  , LR=1e-05,\
 #          min_frequency=10, hidden_size=128, drop=0.5, num_epochs=150, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
 
-# ### 39237(wrond labels), 39458
+# # ### 39237(wrond labels), 39458, 39583
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/fc1_fixed/CL_WHOLE_FX_ND__bs800_376k_lr1e-05_Adam_temp0.1_drop0.1/model.pt'
+# main(saving_folder_name=None, experiment='PRE', criterion='BCELoss', small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model',  pred_window=2, weight_decay=0, BATCH_SIZE=2048  , LR=1e-05,\
+#          min_frequency=10, hidden_size=128, drop=0.5, num_epochs=150, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+
+
+# # # ### with weights 39832, 40587
 PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/fc1_fixed/CL_WHOLE_FX_ND__bs800_376k_lr1e-05_Adam_temp0.1_drop0.1/model.pt'
-main(saving_folder_name=None, experiment='PRE', criterion='BCELoss', small_dataset=False,\
+main(saving_folder_name=None, experiment='PRE', criterion='BCEWithLogitsLoss', pos_weight=[4.7056928 , 2.28509586], small_dataset=False,\
      use_gpu=True, project_name='Fixed_obs_window_model',  pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05,\
          min_frequency=10, hidden_size=128, drop=0.5, num_epochs=150, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
 
+# # # with weights 39833(forgot to infreeze layers), 40554, 40586
+# PRETRAINED_PATH = None
+# main(saving_folder_name=None, experiment='no_pretraining', criterion='BCEWithLogitsLoss',  pos_weight=[4.7056928 , 2.28509586], small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05,\
+#          min_frequency=10, hidden_size=128, drop=0.5, num_epochs=150, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+
+# # # # ### with weights 39834
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/fc1_fixed/CL_WHOLE_FX_ND__bs800_376k_lr1e-05_Adam_temp0.1_drop0.1/model.pt'
+# main(saving_folder_name=None, experiment='PRE', criterion='BCEWithLogitsLoss', pos_weight=[4.7056928 , 2.28509586], small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model',  pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-04,\
+#          min_frequency=10, hidden_size=128, drop=0.5, num_epochs=150, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+
+# # # # # with weights 39835(forgot to infreeze layers), 40546, 
+# PRETRAINED_PATH = None
+# main(saving_folder_name=None, experiment='no_pretraining', criterion='BCEWithLogitsLoss',  pos_weight=[4.7056928 , 2.28509586], small_dataset=False,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-04,\
+#          min_frequency=10, hidden_size=128, drop=0.5, num_epochs=150, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
