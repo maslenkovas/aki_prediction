@@ -1097,7 +1097,7 @@ if three_stages_model:
                 print('Best Threshold=%.2f, F-Score=%.2f' % (threshold, fscore[ix]))
 
                 stacked_preds = (stacked_probs.T[w] > threshold).astype(int)
-                y_true = stacked_labels.T[0]
+                y_true = stacked_labels.T[w]
                 y_pred = stacked_preds
 
                 accuracy = np.round(accuracy_score(y_true, y_pred), 2)
@@ -1153,16 +1153,16 @@ if three_stages_model:
 
         #paths
         CURR_PATH = os.getcwd()
-        PKL_PATH = CURR_PATH+'/LSTM/pickles/'
-        DF_PATH = CURR_PATH +'/LSTM/dataframes/'
+        PKL_PATH = CURR_PATH+'/pickles/'
+        DF_PATH = CURR_PATH +'/dataframes/'
         
         destination_folder = CURR_PATH + '/training/'
         if diagnoses=='icd':
-            TOKENIZER_PATH = CURR_PATH + '/LSTM/tokenizer.json'
-            TXT_DIR_TRAIN = CURR_PATH + '/LSTM/txt_files/train'
+            TOKENIZER_PATH = CURR_PATH + '/tokenizer.json'
+            TXT_DIR_TRAIN = CURR_PATH + '/txt_files/train'
         elif diagnoses=='titles':
-            TOKENIZER_PATH = CURR_PATH + '/LSTM/tokenizer_titles.json'
-            TXT_DIR_TRAIN = CURR_PATH + '/LSTM/txt_files/titles_diags'
+            TOKENIZER_PATH = CURR_PATH + '/tokenizer_titles.json'
+            TXT_DIR_TRAIN = CURR_PATH + '/txt_files/titles_diags'
 
         # Training the tokenizer
         if exists(TOKENIZER_PATH):
@@ -1188,7 +1188,7 @@ if three_stages_model:
             print(f'Vocab size is {tokenizer.get_vocab_size()}')
 
         # variables for classes
-        max_length = max_length = {'demographics':5+2, 'diagnoses':35+2, 'lab_tests':300+2, 'vitals':31+2, 'medications':256+2}
+        max_length = {'demographics':5+2, 'diagnoses':35+2, 'lab_tests':300+2, 'vitals':31+2, 'medications':256+2}
         vocab_size = tokenizer.get_vocab_size()
         embedding_size = 200
         dimension = 128
@@ -1253,7 +1253,7 @@ if three_stages_model:
 
         # file_path = destination_folder + '/88087_no_weights-lr0.00005-adam'
         
-        model = model = EHR_MODEL(400, vocab_size, device, diags=diagnoses, pred_window=pred_window, observing_window=pred_window,  H=hidden_size, embedding_size=embedding_size, drop=drop).to(device)
+        model =  EHR_MODEL(400, vocab_size, device, diags=diagnoses, pred_window=pred_window, observing_window=pred_window,  H=hidden_size, embedding_size=embedding_size, drop=drop).to(device)
         optimizer = optim.Adam(model.parameters(), lr=LR)
 
         if PRETRAINED_PATH is not None:
