@@ -1002,7 +1002,7 @@ if three_stages_model:
                 ix = np.argmax(np.nan_to_num(fscore))
                 threshold = np.round(thresholds[ix], 2)
                 stacked_preds = (stacked_probs.T[w] > threshold).astype(int)
-                y_true = stacked_labels.T[0]
+                y_true = stacked_labels.T[w]
                 y_pred = stacked_preds
                 f1_score_ = np.round(f1_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
                 recall_score_ = np.round(recall_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
@@ -1097,7 +1097,7 @@ if three_stages_model:
                 print('Best Threshold=%.2f, F-Score=%.2f' % (threshold, fscore[ix]))
 
                 stacked_preds = (stacked_probs.T[w] > threshold).astype(int)
-                y_true = stacked_labels.T[0]
+                y_true = stacked_labels.T[w]
                 y_pred = stacked_preds
 
                 accuracy = np.round(accuracy_score(y_true, y_pred), 2)
@@ -1136,12 +1136,12 @@ if three_stages_model:
                 if log_res:
                     wandb.log({'test_accuracy'+stages_names[w] :accuracy, 'test_f1_score'+stages_names[w]:f1_score_, \
                                 'test_recall_score'+stages_names[w]:recall_score_, 'test_precision_score'+stages_names[w]:precision_score_, \
-                                    'test_specificity'+stages_names[w]:specificity})
+                                    'test_specificity'+stages_names[w]:specificity, 'pr_auc'+stages_names[w]:pr_auc, 'roc_auc'+stages_names[w]:roc_auc})
 
         return 
 
 ########################################### MAIN ############################################
-    def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
+    def main(saving_folder_name=None, additional_name='', criterion='BCELoss', small_dataset=False,\
         use_gpu=True, project_name='test', experiment='test', oversampling=False, diagnoses='icd', pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001,\
             min_frequency=1, hidden_size=128, drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None):
         # define the device
@@ -1153,16 +1153,16 @@ if three_stages_model:
 
         #paths
         CURR_PATH = os.getcwd()
-        PKL_PATH = CURR_PATH+'/LSTM/pickles/'
-        DF_PATH = CURR_PATH +'/LSTM/dataframes/'
+        PKL_PATH = CURR_PATH+'/pickles/'
+        DF_PATH = CURR_PATH +'/dataframes/'
         
-        destination_folder = CURR_PATH + '/training/'
+        destination_folder = '/l/users/svetlana.maslenkova/models' + '/no_pretraining/'
         if diagnoses=='icd':
-            TOKENIZER_PATH = CURR_PATH + '/LSTM/tokenizer.json'
-            TXT_DIR_TRAIN = CURR_PATH + '/LSTM/txt_files/train'
+            TOKENIZER_PATH = CURR_PATH + '/aki_prediction/tokenizer.json'
+            TXT_DIR_TRAIN = CURR_PATH + '/aki_prediction/txt_files/train'
         elif diagnoses=='titles':
-            TOKENIZER_PATH = CURR_PATH + '/LSTM/tokenizer_titles.json'
-            TXT_DIR_TRAIN = CURR_PATH + '/LSTM/txt_files/titles_diags'
+            TOKENIZER_PATH = CURR_PATH + '/aki_prediction/tokenizer_titles.json'
+            TXT_DIR_TRAIN = CURR_PATH + '/aki_prediction/txt_files/titles_diags'
 
         # Training the tokenizer
         if exists(TOKENIZER_PATH):
@@ -1293,7 +1293,7 @@ if three_stages_model:
 
         # path for the model
         if saving_folder_name is None:
-            saving_folder_name = 'FT_' + experiment + '_' + str(diagnoses) + str(len(train_dataset) // 1000) + 'k_'  \
+            saving_folder_name = additional_name + 'FT_' + experiment + '_' + str(diagnoses) + str(len(train_dataset) // 1000) + 'k_'  \
                 + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) \
                     + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop)
         
@@ -1335,13 +1335,25 @@ if three_stages_model:
 ########################################### RUNs ############################################
 
 # test run
+# PRETRAINED_PATH = None
 # main(saving_folder_name=None, criterion='BCELoss', small_dataset=True,\
-#      use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=128, LR=1e-04,\
-#          min_frequency=5, hidden_size=128, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+#      use_gpu=False, project_name='fixed_stages_model', experiment='no_pretraining_overs', oversampling=True, diagnoses= 'titles', \
+#         pred_window=2, weight_decay=0, BATCH_SIZE=512  , LR=1e-05,\
+#          min_frequency=10, hidden_size=128, drop=0.4, num_epochs=1,\
+#              wandb_mode='disabled', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
 
+# #  oversampling 47388, 47389, 47396
+# PRETRAINED_PATH = None
+# main(saving_folder_name=None, additional_name='3_', criterion='BCELoss', small_dataset=False,\
+#      use_gpu=True, project_name='fixed_stages_model', experiment='no_pretraining_overs', oversampling=True, diagnoses= 'titles', \
+#         pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05,\
+#          min_frequency=10, hidden_size=128, drop=0.4, num_epochs=100,\
+#              wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+
+# # 47304, 47305, 48142
 PRETRAINED_PATH = None
-main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-     use_gpu=True, project_name='fixed_stages_model', experiment='no_pretraining_overs', oversampling=True, diagnoses= 'titles', \
-        pred_window=2, weight_decay=0, BATCH_SIZE=256  , LR=1e-05,\
-         min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100,\
+main(saving_folder_name=None, additional_name='2_', criterion='BCELoss', small_dataset=False,\
+     use_gpu=True, project_name='fixed_stages_model', experiment='no_pretraining_', oversampling=False, diagnoses= 'titles', \
+        pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05,\
+         min_frequency=10, hidden_size=128, drop=0.4, num_epochs=200,\
              wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
