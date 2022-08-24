@@ -1152,7 +1152,7 @@ if three_stages_model:
         print(f'Device: {device}')
 
         #paths
-        CURR_PATH = os.getcwd()
+        CURR_PATH = os.getcwd() +'/LSTM/'
         PKL_PATH = CURR_PATH+'/pickles/'
         DF_PATH = CURR_PATH +'/dataframes/'
         
@@ -1293,7 +1293,7 @@ if three_stages_model:
 
         # path for the model
         if saving_folder_name is None:
-            saving_folder_name = 'FT_' + experiment + '_' + str(diagnoses) + str(len(train_dataset) // 1000) + 'k_'  \
+            saving_folder_name = 'FT_' + experiment + '_' + str(diagnoses)+ '_' + str(len(train_dataset) // 1000) + 'k_'  \
                 + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) \
                     + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop)
         
@@ -1339,9 +1339,16 @@ if three_stages_model:
 #      use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=128, LR=1e-04,\
 #          min_frequency=5, hidden_size=128, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
 
+# PRETRAINED_PATH = None
+# main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
+#      use_gpu=True, project_name='fixed_stages_model', experiment='no_pretraining_overs', oversampling=True, diagnoses= 'titles', \
+#         pred_window=2, weight_decay=0, BATCH_SIZE=256  , LR=1e-05,\
+#          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100,\
+#              wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+
 PRETRAINED_PATH = None
 main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-     use_gpu=True, project_name='fixed_stages_model', experiment='no_pretraining_overs', oversampling=True, diagnoses= 'titles', \
-        pred_window=2, weight_decay=0, BATCH_SIZE=256  , LR=1e-05,\
-         min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100,\
+     use_gpu=True, project_name='fixed_stages_model', experiment='no_pretraining', oversampling=False, diagnoses= 'icd', \
+        pred_window=2, weight_decay=0, BATCH_SIZE=512  , LR=1e-05,\
+         min_frequency=10, hidden_size=128, drop=0.4, num_epochs=100,\
              wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)

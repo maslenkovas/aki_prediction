@@ -1497,5 +1497,5 @@ def main(project_name,  num_epochs, pred_window, max_day, additional_name='', PR
 
 main(project_name='Contrastive-loss-pretraining',  num_epochs=2, pred_window=2, max_day=None, additional_name='', \
     PRETRAINED_PATH=None, drop=0.1, temperature=0.5, embedding_size=200, min_frequency=1, BATCH_SIZE=16, \
-    small_dataset=True, LR=0.0001, save_model=False, use_gpu=True, saving_folder_name='test_model', wandb_mode = 'disabled', \
+    small_dataset=True, LR=0.0001, save_model=True, use_gpu=True, saving_folder_name='test_model', wandb_mode = 'disabled', \
             run_id=None, diagnoses='titles')
