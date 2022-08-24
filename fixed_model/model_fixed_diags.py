@@ -1142,8 +1142,9 @@ if three_stages_model:
 
 ########################################### MAIN ############################################
     def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-        use_gpu=True, project_name='test', experiment='test', oversampling=False, diagnoses='icd', pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001,\
-            min_frequency=1, hidden_size=128, drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None):
+        use_gpu=True, project_name='test', experiment='test', oversampling=False, diagnoses='icd',\
+             pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128,\
+                 drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None):
         # define the device
         if use_gpu:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -1152,7 +1153,7 @@ if three_stages_model:
         print(f'Device: {device}')
 
         #paths
-        CURR_PATH = os.getcwd() +'/LSTM/'
+        CURR_PATH = os.getcwd()
         PKL_PATH = CURR_PATH+'/pickles/'
         DF_PATH = CURR_PATH +'/dataframes/'
         
@@ -1293,7 +1294,7 @@ if three_stages_model:
 
         # path for the model
         if saving_folder_name is None:
-            saving_folder_name = 'FT_' + experiment + '_' + str(diagnoses)+ '_' + str(len(train_dataset) // 1000) + 'k_'  \
+            saving_folder_name = 'FT_' + experiment + '_' + str(diagnoses) + str(len(train_dataset) // 1000) + 'k_'  \
                 + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) \
                     + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop)
         
@@ -1331,8 +1332,9 @@ if three_stages_model:
 
         wandb.finish()
 
-
+#############################################################################################
 ########################################### RUNs ############################################
+#############################################################################################
 
 # test run
 # main(saving_folder_name=None, criterion='BCELoss', small_dataset=True,\
