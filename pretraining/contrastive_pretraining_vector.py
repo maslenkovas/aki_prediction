@@ -1243,7 +1243,7 @@ elif model_three_stages:
 
 
 
-def main(project_name,  num_epochs, pred_window, max_day, additional_name='', PRETRAINED_PATH=None, drop=0.1, \
+def main(project_name,  num_epochs, pred_window, max_day, experiment, additional_name='', PRETRAINED_PATH=None, drop=0.1, \
     temperature=0.5, embedding_size=200, min_frequency=10, BATCH_SIZE=16, small_dataset=True, \
         LR=0.0001, save_model=False, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
             run_id=None, diagnoses='titles'):
@@ -1255,18 +1255,18 @@ def main(project_name,  num_epochs, pred_window, max_day, additional_name='', PR
     print('device: ', device)
     
     #paths
-    CURR_PATH = os.getcwd() + '/LSTM/'
+    CURR_PATH = os.getcwd()
     PKL_PATH = CURR_PATH+'/pickles/'
     DF_PATH = CURR_PATH +'/dataframes/'
-    # destination_folder = '/l/users/svetlana.maslenkova/models' + '/pretraining/three_stages/'
-    destination_folder = '/home/svetlanamaslenkova/Documents/AKI_deep/training/'
+    destination_folder = '/l/users/svetlana.maslenkova/models' + '/pretraining/three_stages/'
+    # destination_folder = '/home/svetlanamaslenkova/Documents/AKI_deep/training/'
 
     if diagnoses=='icd':
-        TOKENIZER_PATH = CURR_PATH + '/tokenizer.json'
-        TXT_DIR_TRAIN = CURR_PATH + '/txt_files/train'
+        TOKENIZER_PATH = CURR_PATH + '/aki_prediction/' + '/tokenizer.json'
+        TXT_DIR_TRAIN = CURR_PATH + '/aki_prediction/' + '/txt_files/train'
     elif diagnoses=='titles':
-        TOKENIZER_PATH = CURR_PATH + '/tokenizer_titles.json'
-        TXT_DIR_TRAIN = CURR_PATH + '/txt_files/titles_diags'
+        TOKENIZER_PATH = CURR_PATH + '/aki_prediction/'+ '/tokenizer_titles.json'
+        TXT_DIR_TRAIN = CURR_PATH + '/aki_prediction/'+ '/txt_files/titles_diags'
 
     # Training the tokenizer
     if exists(TOKENIZER_PATH):
@@ -1376,7 +1376,7 @@ def main(project_name,  num_epochs, pred_window, max_day, additional_name='', PR
     num_samples = len(train_loader)*BATCH_SIZE // 1000
 
     if saving_folder_name is None:
-        saving_folder_name = additional_name + 'STG' + '_bs' + str(BATCH_SIZE) +'_' + str(num_samples) + 'k' + '_lr'+ str(LR) + '_Adam' + '_temp' + str(temperature) + '_drop' + str(drop)
+        saving_folder_name = additional_name + 'STG' + '_bs' + str(BATCH_SIZE) +'_' + str(num_samples) + 'k_' + diagnoses + '_lr'+ str(LR) + '_Adam' + '_temp' + str(temperature) + '_drop' + str(drop)
     file_path = destination_folder + saving_folder_name
     train_params['file_path'] = file_path
 
@@ -1388,7 +1388,7 @@ def main(project_name,  num_epochs, pred_window, max_day, additional_name='', PR
     print('Run name: ', run_name)
     args = {'optimizer':'Adam', 'LR':LR, 'min_frequency':min_frequency, 'dropout':drop, \
         'vocab_size':vocab_size, 'embedding_size':embedding_size, 'pretrained':'lstm_adm', \
-            'temperature':temperature, 'batch_size':BATCH_SIZE,  'experiment':'STG'}
+            'temperature':temperature, 'batch_size':BATCH_SIZE,  'experiment':experiment}
 
     if run_id is None:    
         run_id = wandb.util.generate_id()  
@@ -1495,7 +1495,37 @@ def main(project_name,  num_epochs, pred_window, max_day, additional_name='', PR
                                     ######## Three stages model ###########
 #####################################################################################################################
 
-main(project_name='Contrastive-loss-pretraining',  num_epochs=2, pred_window=2, max_day=None, additional_name='', \
-    PRETRAINED_PATH=None, drop=0.1, temperature=0.5, embedding_size=200, min_frequency=1, BATCH_SIZE=16, \
-    small_dataset=True, LR=0.0001, save_model=False, use_gpu=True, saving_folder_name='test_model', wandb_mode = 'disabled', \
-            run_id=None, diagnoses='titles')
+# main(project_name='test',  num_epochs=2, pred_window=2, max_day=None, experiment='STG', additional_name='', \
+#     PRETRAINED_PATH=None, drop=0.1, temperature=0.5, embedding_size=200, min_frequency=10, BATCH_SIZE=128, \
+#     small_dataset=True, LR=0.0001, save_model=False, use_gpu=False, saving_folder_name='test_model', wandb_mode = 'disabled', \
+#             run_id=None, diagnoses='icd')
+
+# # 48666, 48668
+# main(project_name='Contrastive-loss-pretraining',  num_epochs=100, pred_window=2, max_day=None, additional_name='', \
+#     PRETRAINED_PATH=None, drop=0.1, temperature=0.5, embedding_size=200, min_frequency=1, BATCH_SIZE=300, \
+#     small_dataset=False, LR=0.0001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
+#             run_id=None, diagnoses='titles')
+
+# # # 48946 bs8, 48947 bs32, 48952 bs256, 48955 bs521
+# main(project_name='Contrastive-loss-pretraining',  num_epochs=100, pred_window=2, max_day=None, additional_name='', \
+#     PRETRAINED_PATH=None, drop=0.1, temperature=0.1, embedding_size=200, min_frequency=1, BATCH_SIZE=521, \
+#     small_dataset=False, LR=0.0001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
+#             run_id=None, diagnoses='titles')
+
+# # 48961 bs512, 48962 bs256
+# main(project_name='Contrastive-loss-pretraining',  num_epochs=100, pred_window=2, max_day=None, experiment='STG', additional_name='', \
+#     PRETRAINED_PATH=None, drop=0.1, temperature=0.05, embedding_size=200, min_frequency=10, BATCH_SIZE=256, \
+#     small_dataset=False, LR=0.0001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
+#             run_id=None, diagnoses='titles')
+
+# 48980 bs512, 48983 bs256
+# main(project_name='Contrastive-loss-pretraining',  num_epochs=100, pred_window=2, max_day=None, experiment='STG', additional_name='', \
+#     PRETRAINED_PATH=None, drop=0.1, temperature=0.1, embedding_size=200, min_frequency=10, BATCH_SIZE=256, \
+#     small_dataset=False, LR=0.0001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
+#             run_id=None, diagnoses='icd')
+
+# 48984 bs512, 48985 bs256
+main(project_name='Contrastive-loss-pretraining',  num_epochs=100, pred_window=2, max_day=None, experiment='STG', additional_name='', \
+    PRETRAINED_PATH=None, drop=0.1, temperature=0.05, embedding_size=200, min_frequency=10, BATCH_SIZE=256, \
+    small_dataset=False, LR=0.0001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
+            run_id=None, diagnoses='icd')

@@ -1142,8 +1142,9 @@ if three_stages_model:
 
 ########################################### MAIN ############################################
     def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-        use_gpu=True, project_name='test', experiment='test', oversampling=False, diagnoses='icd', pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001,\
-            min_frequency=1, hidden_size=128, drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None):
+        use_gpu=True, project_name='test', experiment='test', oversampling=False, diagnoses='icd',\
+             pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128,\
+                 drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None):
         # define the device
         if use_gpu:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
