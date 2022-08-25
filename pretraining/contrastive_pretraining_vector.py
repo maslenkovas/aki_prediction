@@ -1500,7 +1500,7 @@ def main(project_name,  num_epochs, pred_window, max_day, experiment, additional
 #     small_dataset=True, LR=0.0001, save_model=False, use_gpu=False, saving_folder_name='test_model', wandb_mode = 'disabled', \
 #             run_id=None, diagnoses='icd')
 
-# # 48666, 48668
+# # 48666, 48668 bad vocab
 # main(project_name='Contrastive-loss-pretraining',  num_epochs=100, pred_window=2, max_day=None, additional_name='', \
 #     PRETRAINED_PATH=None, drop=0.1, temperature=0.5, embedding_size=200, min_frequency=1, BATCH_SIZE=300, \
 #     small_dataset=False, LR=0.0001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
