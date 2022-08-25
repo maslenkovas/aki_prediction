@@ -807,14 +807,16 @@ if three_stages_model:
             self.pred_window = pred_window
             self.H = H
             self.max_length = max_length
+            self.drop = drop
+
             if diags == 'titles':
                 self.max_length_diags = 400
-            else:
-                self.max_length_diags = 4
+            elif diags== 'icd':
+                self.max_length_diags = 40
+
             self.embedding_size = embedding_size
             self.vocab_size = vocab_size
             self.device = device
-            self.drop = drop
 
             # self.embedding = pretrained_model
             self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
@@ -842,7 +844,6 @@ if three_stages_model:
                                 bidirectional=True)
 
             self.drop = nn.Dropout(p=0.5)
-
             self.fc_2 = nn.Linear(self.H*2, 2)
 
         def forward(self, tensor_day, tensor_diagnoses):
@@ -1040,7 +1041,7 @@ if three_stages_model:
 
 
     # save_metrics(file_path + '/metrics.pt', train_loss_list, valid_loss_list, global_steps_list)
-    print('Finished Training!')
+        print('Finished Training!')
 
 
 ############################################ EVALUATION #####################################
@@ -1141,7 +1142,7 @@ if three_stages_model:
         return 
 
 ########################################### MAIN ############################################
-    def main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
+    def main(saving_folder_name=None, additional_name='', criterion='BCELoss', small_dataset=False,\
         use_gpu=True, project_name='test', experiment='test', oversampling=False, diagnoses='icd',\
              pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128,\
                  drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None):
@@ -1153,7 +1154,7 @@ if three_stages_model:
         print(f'Device: {device}')
 
         #paths
-        CURR_PATH = os.getcwd()
+        CURR_PATH = os.getcwd() #+ '/LSTM/'
         PKL_PATH = CURR_PATH+'/pickles/'
         DF_PATH = CURR_PATH +'/dataframes/'
         
@@ -1294,7 +1295,7 @@ if three_stages_model:
 
         # path for the model
         if saving_folder_name is None:
-            saving_folder_name = 'FT_' + experiment + '_' + str(diagnoses) + str(len(train_dataset) // 1000) + 'k_'  \
+            saving_folder_name = additional_name + 'FT_' + experiment + '_' + str(diagnoses) + str(len(train_dataset) // 1000) + 'k_'  \
                 + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) \
                     + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop)
         
@@ -1336,10 +1337,11 @@ if three_stages_model:
 ########################################### RUNs ############################################
 #############################################################################################
 
-# test run
+# # test run
 # main(saving_folder_name=None, criterion='BCELoss', small_dataset=True,\
-#      use_gpu=False, project_name='Fixed_obs_window_model', pred_window=2, BATCH_SIZE=128, LR=1e-04,\
-#          min_frequency=5, hidden_size=128, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+#      use_gpu=False, project_name='Fixed_obs_window_model', experiment='no_pretraining', oversampling=False,\
+#         diagnoses= 'icd', pred_window=2, weight_decay=0, BATCH_SIZE=128, LR=1e-04, min_frequency=10, hidden_size=128,\
+#              drop=0.6, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
 
 # PRETRAINED_PATH = None
 # main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
@@ -1348,9 +1350,14 @@ if three_stages_model:
 #          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100,\
 #              wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
 
+# PRETRAINED_PATH = None
+# main(saving_folder_name=None, additional_name='3_', criterion='BCELoss', small_dataset=False, use_gpu=True, \
+#     project_name='fixed_stages_model', experiment='no_pretraining', oversampling=False, diagnoses= 'icd', \
+#         pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05, min_frequency=10, hidden_size=128, \
+#             drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+
 PRETRAINED_PATH = None
-main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
-     use_gpu=True, project_name='fixed_stages_model', experiment='no_pretraining', oversampling=False, diagnoses= 'icd', \
-        pred_window=2, weight_decay=0, BATCH_SIZE=512  , LR=1e-05,\
-         min_frequency=10, hidden_size=128, drop=0.4, num_epochs=100,\
-             wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
+main(saving_folder_name=None, additional_name='3_', criterion='BCELoss', small_dataset=False, use_gpu=True, \
+    project_name='fixed_stages_model', experiment='no_pretraining_overs', oversampling=True, diagnoses= 'icd', \
+        pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05, min_frequency=10, hidden_size=128, \
+            drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
