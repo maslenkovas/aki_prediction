@@ -1303,10 +1303,8 @@ if three_stages_model:
         file_path = destination_folder + saving_folder_name
         train_params['file_path'] = file_path
 
-        print(f'\n\nMODEL PATH: {file_path}')
         if not os.path.exists(file_path):
             os.makedirs(file_path)
-        
 
         # wandb setup
         os.environ['WANDB_API_KEY'] = '8e859a0fc58f296096842a367ca532717d3b4059'
@@ -1321,7 +1319,8 @@ if three_stages_model:
                 'pred_window':pred_window, 'experiment':experiment,'weight_decay':weight_decay, 'drop':drop}
         wandb.init(project=project_name, name=run_name, mode=wandb_mode, config=args, id=run_id, resume=resume)
         print('Run id is: ', run_id)
-
+        print('Run name: ', run_name)
+        print(f'\n\nMODEL PATH: {file_path}')
         # training
         print('Training started..')
         train(**train_params)
@@ -1337,19 +1336,16 @@ if three_stages_model:
 ########################################### RUNs ############################################
 #############################################################################################
 
-<<<<<<< HEAD
 # test run
-main(saving_folder_name=None, criterion='BCELoss', small_dataset=True,\
-     use_gpu=True, project_name='Fixed_obs_window_model', experiment='no_pretraining', oversampling=False, \
-        diagnoses= 'titles', pred_window=2, weight_decay=0, BATCH_SIZE=128, LR=1e-04,min_frequency=10, \
-            hidden_size=128, drop=0.4, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
-=======
+# main(saving_folder_name=None, criterion='BCELoss', small_dataset=True,\
+#      use_gpu=True, project_name='Fixed_obs_window_model', experiment='no_pretraining', oversampling=False, \
+#         diagnoses= 'titles', pred_window=2, weight_decay=0, BATCH_SIZE=128, LR=1e-04,min_frequency=10, \
+#             hidden_size=128, drop=0.4, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
 # # test run
 # main(saving_folder_name=None, criterion='BCELoss', small_dataset=True,\
 #      use_gpu=False, project_name='Fixed_obs_window_model', experiment='no_pretraining', oversampling=False,\
 #         diagnoses= 'icd', pred_window=2, weight_decay=0, BATCH_SIZE=128, LR=1e-04, min_frequency=10, hidden_size=128,\
 #              drop=0.6, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
->>>>>>> e790c1a41aaa599655fb2283bb2b339b55403d47
 
 # PRETRAINED_PATH = None
 # main(saving_folder_name=None, criterion='BCELoss', small_dataset=False,\
@@ -1357,8 +1353,6 @@ main(saving_folder_name=None, criterion='BCELoss', small_dataset=True,\
 #         pred_window=2, weight_decay=0, BATCH_SIZE=256  , LR=1e-05,\
 #          min_frequency=5, hidden_size=128, drop=0.4, num_epochs=100,\
 #              wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
-<<<<<<< HEAD
-=======
 
 # PRETRAINED_PATH = None
 # main(saving_folder_name=None, additional_name='3_', criterion='BCELoss', small_dataset=False, use_gpu=True, \
@@ -1366,9 +1360,8 @@ main(saving_folder_name=None, criterion='BCELoss', small_dataset=True,\
 #         pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05, min_frequency=10, hidden_size=128, \
 #             drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
 
-PRETRAINED_PATH = None
-main(saving_folder_name=None, additional_name='3_', criterion='BCELoss', small_dataset=False, use_gpu=True, \
-    project_name='fixed_stages_model', experiment='no_pretraining_overs', oversampling=True, diagnoses= 'icd', \
-        pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05, min_frequency=10, hidden_size=128, \
-            drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)
->>>>>>> e790c1a41aaa599655fb2283bb2b339b55403d47
+# PRETRAINED_PATH = None
+# main(saving_folder_name=None, additional_name='3_', criterion='BCELoss', small_dataset=False, use_gpu=True, \
+#     project_name='fixed_stages_model', experiment='no_pretraining_overs', oversampling=True, diagnoses= 'icd', \
+#         pred_window=2, weight_decay=0, BATCH_SIZE=1024  , LR=1e-05, min_frequency=10, hidden_size=128, \
+#             drop=0.4, num_epochs=100, wandb_mode='online', PRETRAINED_PATH=PRETRAINED_PATH, run_id=None)

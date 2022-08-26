@@ -1344,7 +1344,7 @@ if three_stages_model:
             if diags == 'titles':
                 self.max_length_diags = 400
             else:
-                self.max_length_diags = 4
+                self.max_length_diags = 40
             self.embedding_size = embedding_size
             self.vocab_size = vocab_size
             self.device = device
@@ -1883,7 +1883,7 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
 
 
     ## load pretrained model
-    pretrained_model =  EHR_PRETRAINING(max_length, vocab_size, device, diags='titles', pred_window=2, observing_window=2,  H=hidden_size, embedding_size=200, drop=drop).to(device)
+    pretrained_model =  EHR_PRETRAINING(max_length, vocab_size, device, diags=diagnoses, pred_window=2, observing_window=2,  H=hidden_size, embedding_size=200, drop=drop).to(device)
     if PRETRAINED_PATH is not None:
         pretrained_model.load_state_dict(torch.load(PRETRAINED_PATH, map_location=device)['model_state_dict'])
         print(f"Pretrained model loaded from <=== {PRETRAINED_PATH}")
@@ -1893,7 +1893,7 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
     elif new_fixed_model:
         model = EHR_FINETUNING(pretrained_model, max_length, vocab_size, device, drop=drop).to(device)
     elif three_stages_model:
-        model = EHR_MODEL(pretrained_model, max_length, vocab_size, device, diags='titles', pred_window=2, observing_window=2,  H=hidden_size, embedding_size=200, drop=drop)
+        model = EHR_MODEL(pretrained_model, max_length, vocab_size, device, diags='titles', pred_window=2, observing_window=2,  H=hidden_size, embedding_size=200, drop=drop).to(device)
     
     for num, (name, param) in enumerate(model.named_parameters()):
         if num < 21:
@@ -1946,7 +1946,7 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
 
     # path for saving the model
     if saving_folder_name is None:
-        saving_folder_name = additional_name + 'FT_' + experiment + str(len(train_dataset) // 1000) + 'k_'  \
+        saving_folder_name = additional_name + 'FT_' + experiment + '_' + diagnoses + '_' + str(len(train_dataset) // 1000) + 'k_'  \
             + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) \
                 + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop)
     
@@ -2142,10 +2142,41 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
 ##############################################################################################################
 
 # # test run
-PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs300_390k_lr0.0001_Adam_temp0.5_drop0.1/model.pt'
-main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', pos_weight=None, \
-    small_dataset=True, use_gpu=False, project_name='test', experiment='test', oversampling=False, \
-        diagnoses='titles', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=128, \
-            LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1, wandb_mode='disabled', \
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs300_390k_lr0.0001_Adam_temp0.5_drop0.1/model.pt'
+# main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', pos_weight=None, \
+#     small_dataset=True, use_gpu=False, project_name='test', experiment='test', oversampling=False, \
+#         diagnoses='titles', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=128, \
+#             LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1, wandb_mode='disabled', \
+#                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
+
+## 50115, 50116, 50117 || 50133, 50136, 50137
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs521_390k_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
+# main(saving_folder_name=None, additional_name='3_t0.1_', criterion='BCELoss', pos_weight=None, \
+#     small_dataset=False, use_gpu=True, project_name='fixed_stages_model', experiment='pretrained', oversampling=False, \
+#         diagnoses='titles', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=4000, \
+#             LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1000, wandb_mode='online', \
+#                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
+
+# # 50118, 50120, 50121 || 50140, 50141, 50142
+PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_lr0.0001_Adam_temp0.05_drop0.1/model.pt'
+main(saving_folder_name=None, additional_name='3_0.05_', criterion='BCELoss', pos_weight=None, \
+    small_dataset=False, use_gpu=True, project_name='fixed_stages_model', experiment='pretrained', oversampling=False, \
+        diagnoses='titles', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=4000, \
+            LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1000, wandb_mode='online', \
                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
 
+
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
+# main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', pos_weight=None, \
+#     small_dataset=True, use_gpu=False, project_name='fixed_stages_model', experiment='test', oversampling=False, \
+#         diagnoses='icd', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=512, \
+#             LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1, wandb_mode='disabled', \
+#                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
+
+# 50125, 
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
+# main(saving_folder_name=None, additional_name='2_', criterion='BCELoss', pos_weight=None, \
+#     small_dataset=False, use_gpu=True, project_name='fixed_stages_model', experiment='pretrained', oversampling=False, \
+#         diagnoses='icd', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=4000, \
+#             LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=100, wandb_mode='online', \
+#                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
