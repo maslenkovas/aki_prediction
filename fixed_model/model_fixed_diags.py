@@ -72,19 +72,6 @@ def load_checkpoint(load_path, model, optimizer, device):
     
     return state_dict['valid_loss']
 
-def load_checkpoint(load_path, model, optimizer, device):
-
-    if load_path==None:
-        return
-    
-    state_dict = torch.load(load_path, map_location=device)
-    print(f'Model loaded from <== {load_path}')
-    
-    model.load_state_dict(state_dict['model_state_dict'])
-    optimizer.load_state_dict(state_dict['optimizer_state_dict'])
-    
-    return state_dict['valid_loss']
-
 
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
@@ -767,7 +754,7 @@ if three_stages_model:
                     else:
                         AKI_3_labels.append(0)
 
-                    # vitals
+                    # day info
                     if (str(day_info[i]) == 'nan') or (day_info[i] == np.nan):
                         day_info_list.append(self.tokenize('PAD', self.max_length_day))
                     else:
