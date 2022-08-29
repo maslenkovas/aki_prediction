@@ -1350,7 +1350,9 @@ def main(project_name,  num_epochs, pred_window, max_day, experiment, additional
     elif new_fixed_model:
         model = EHR_PRETRAINING(max_length=max_length, vocab_size=vocab_size, device=device, pred_window=2, observing_window=3,  H=128, embedding_size=200, drop=0.6).to(device)
     elif  model_three_stages:
-        model = EHR_PRETRAINING(400, vocab_size, device, diags=diagnoses, pred_window=2, observing_window=2,  H=dimension, embedding_size=embedding_size, drop=drop).to(device)
+        if diagnoses=='icd': max_length=40
+        elif diagnoses=='titles': max_length=400
+        model = EHR_PRETRAINING(max_length, vocab_size, device, diags=diagnoses, pred_window=2, observing_window=2,  H=dimension, embedding_size=embedding_size, drop=drop).to(device)
 
     
     optimizer = optim.Adam(model.parameters(), lr=LR)

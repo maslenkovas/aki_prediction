@@ -2158,20 +2158,20 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
 #                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
 
 # # 50118, 50120, 50121 || 50140, 50141, 50142
-PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_lr0.0001_Adam_temp0.05_drop0.1/model.pt'
-main(saving_folder_name=None, additional_name='3_0.05_', criterion='BCELoss', pos_weight=None, \
-    small_dataset=False, use_gpu=True, project_name='fixed_stages_model', experiment='pretrained', oversampling=False, \
-        diagnoses='titles', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=4000, \
-            LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1000, wandb_mode='online', \
-                PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
-
-
-# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
-# main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', pos_weight=None, \
-#     small_dataset=True, use_gpu=False, project_name='fixed_stages_model', experiment='test', oversampling=False, \
-#         diagnoses='icd', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=512, \
-#             LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1, wandb_mode='disabled', \
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_lr0.0001_Adam_temp0.05_drop0.1/model.pt'
+# main(saving_folder_name=None, additional_name='3_0.05_', criterion='BCELoss', pos_weight=None, \
+#     small_dataset=False, use_gpu=True, project_name='fixed_stages_model', experiment='pretrained', oversampling=False, \
+#         diagnoses='titles', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=4000, \
+#             LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1000, wandb_mode='online', \
 #                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
+
+
+PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
+main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', pos_weight=None, \
+    small_dataset=True, use_gpu=False, project_name='fixed_stages_model', experiment='test', oversampling=False, \
+        diagnoses='icd', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=512, \
+            LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1, wandb_mode='disabled', \
+                PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
 
 # 50125, 
 # PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
