@@ -1103,7 +1103,6 @@ elif model_three_stages:
 
             batch_size = tensor_day.size()[0]
 
-            full_output = torch.tensor([]).to(device=self.device)
             out_emb_diags = self.embedding(tensor_diagnoses.squeeze(1))
             # print('out_emb_diags: ', out_emb_diags.size())
             out_lstm_diags, _ = self.lstm_diags(out_emb_diags)
@@ -1255,18 +1254,18 @@ def main(project_name,  num_epochs, pred_window, max_day, experiment, additional
     print('device: ', device)
     
     #paths
-    CURR_PATH = os.getcwd()
+    CURR_PATH = os.getcwd() + '/LSTM/'
     PKL_PATH = CURR_PATH+'/pickles/'
     DF_PATH = CURR_PATH +'/dataframes/'
-    destination_folder = '/l/users/svetlana.maslenkova/models' + '/pretraining/three_stages/'
-    # destination_folder = '/home/svetlanamaslenkova/Documents/AKI_deep/training/'
+    # destination_folder = '/l/users/svetlana.maslenkova/models' + '/pretraining/three_stages/'
+    destination_folder = '/home/svetlanamaslenkova/Documents/AKI_deep/pretraining/'
 
     if diagnoses=='icd':
-        TOKENIZER_PATH = CURR_PATH + '/aki_prediction/' + '/tokenizer.json'
-        TXT_DIR_TRAIN = CURR_PATH + '/aki_prediction/' + '/txt_files/train'
+        TOKENIZER_PATH = CURR_PATH + '/aki_prediction' + '/tokenizer.json'
+        TXT_DIR_TRAIN = CURR_PATH + '/aki_prediction' + '/txt_files/train'
     elif diagnoses=='titles':
-        TOKENIZER_PATH = CURR_PATH + '/aki_prediction/'+ '/tokenizer_titles.json'
-        TXT_DIR_TRAIN = CURR_PATH + '/aki_prediction/'+ '/txt_files/titles_diags'
+        TOKENIZER_PATH = CURR_PATH + '/aki_prediction'+ '/tokenizer_titles.json'
+        TXT_DIR_TRAIN = CURR_PATH + '/aki_prediction'+ '/txt_files/titles_diags'
 
     # Training the tokenizer
     if exists(TOKENIZER_PATH):
@@ -1350,8 +1349,7 @@ def main(project_name,  num_epochs, pred_window, max_day, experiment, additional
     elif new_fixed_model:
         model = EHR_PRETRAINING(max_length=max_length, vocab_size=vocab_size, device=device, pred_window=2, observing_window=3,  H=128, embedding_size=200, drop=0.6).to(device)
     elif  model_three_stages:
-        if diagnoses=='icd': max_length=40
-        elif diagnoses=='titles': max_length=400
+        max_length=400
         model = EHR_PRETRAINING(max_length, vocab_size, device, diags=diagnoses, pred_window=2, observing_window=2,  H=dimension, embedding_size=embedding_size, drop=drop).to(device)
 
     
@@ -1527,7 +1525,12 @@ def main(project_name,  num_epochs, pred_window, max_day, experiment, additional
 #             run_id=None, diagnoses='icd')
 
 # 48984 bs512, 48985 bs256
-main(project_name='Contrastive-loss-pretraining',  num_epochs=100, pred_window=2, max_day=None, experiment='STG', additional_name='', \
-    PRETRAINED_PATH=None, drop=0.1, temperature=0.05, embedding_size=200, min_frequency=10, BATCH_SIZE=256, \
-    small_dataset=False, LR=0.0001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
+# main(project_name='Contrastive-loss-pretraining',  num_epochs=100, pred_window=2, max_day=None, experiment='STG', additional_name='', \
+#     PRETRAINED_PATH=None, drop=0.1, temperature=0.05, embedding_size=200, min_frequency=10, BATCH_SIZE=256, \
+#     small_dataset=False, LR=0.0001, save_model=True, use_gpu=True, saving_folder_name=None, wandb_mode = 'online', \
+#             run_id=None, diagnoses='icd')
+
+main(project_name='test',  num_epochs=1, pred_window=2, max_day=None, experiment='STG', additional_name='', \
+    PRETRAINED_PATH=None, drop=0.1, temperature=0.05, embedding_size=200, min_frequency=10, BATCH_SIZE=128, \
+    small_dataset=True, LR=0.0001, save_model=True, use_gpu=False, saving_folder_name='test_model', wandb_mode = 'disabled', \
             run_id=None, diagnoses='icd')

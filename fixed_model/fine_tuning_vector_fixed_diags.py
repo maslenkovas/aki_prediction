@@ -1344,7 +1344,7 @@ if three_stages_model:
 
             if diags == 'titles':
                 self.max_length_diags = 400
-            else:
+            elif diags == 'icd':
                 self.max_length_diags = 40
 
             self.embedding_size = embedding_size
@@ -1372,7 +1372,6 @@ if three_stages_model:
 
             batch_size = tensor_day.size()[0]
 
-            full_output = torch.tensor([]).to(device=self.device)
             out_emb_diags = self.embedding(tensor_diagnoses.squeeze(1))
             # print('out_emb_diags: ', out_emb_diags.size())
             out_lstm_diags, _ = self.lstm_diags(out_emb_diags)
@@ -1807,11 +1806,9 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
         max_length = 400
     elif new_fixed_model:
         max_length = {'demographics':5+2, 'diagnoses':35+2, 'lab_tests':300+2, 'vitals':31+2, 'medications':256+2}
-    elif three_stages_model and diagnoses=='icd':
-        max_length = 40
-    elif three_stages_model and diagnoses=='titles':
+    elif three_stages_model:
         max_length = 400
-        
+
     vocab_size = tokenizer.get_vocab_size()
     embedding_size = 200
     dimension = 128
@@ -1832,7 +1829,7 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
     # pid_val_df = pid_val_df[pid_val_df.hadm_id.isin(val_admissions)]
     # pid_test_df = pid_test_df[pid_test_df.hadm_id.isin(test_admissions)]
 
-    if small_dataset: frac=0.1
+    if small_dataset: frac=0.2
     else: frac=1
 
     if fixed_model_with_diags:
@@ -1854,13 +1851,13 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
         val_dataset = MyDataset(pid_val_df.sample(frac=frac), tokenizer=tokenizer, max_length=max_length)
         val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
     elif three_stages_model:
-        train_dataset = MyDataset(pid_train_df.sample(frac=frac), tokenizer, max_length_day=400, diags='titles', pred_window=2, observing_window=2)
+        train_dataset = MyDataset(pid_train_df.sample(frac=frac), tokenizer, max_length_day=400, diags=diagnoses, pred_window=2, observing_window=2)
         train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
         
-        val_dataset = MyDataset(pid_val_df.sample(frac=frac), tokenizer, max_length_day=400, diags='titles', pred_window=2, observing_window=2)
+        val_dataset = MyDataset(pid_val_df.sample(frac=frac), tokenizer, max_length_day=400, diags=diagnoses, pred_window=2, observing_window=2)
         val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-        test_dataset = MyDataset(pid_test_df.sample(frac=frac), tokenizer, max_length_day=400, diags='titles', pred_window=2, observing_window=2)
+        test_dataset = MyDataset(pid_test_df.sample(frac=frac), tokenizer, max_length_day=400, diags=diagnoses, pred_window=2, observing_window=2)
         test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     if oversampling:
@@ -1900,7 +1897,7 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
     elif new_fixed_model:
         model = EHR_FINETUNING(pretrained_model, max_length, vocab_size, device, drop=drop).to(device)
     elif three_stages_model:
-        model = EHR_MODEL(pretrained_model, max_length, vocab_size, device, diags='titles', pred_window=2, observing_window=2,  H=hidden_size, embedding_size=200, drop=drop).to(device)
+        model = EHR_MODEL(pretrained_model, max_length, vocab_size, device, diags=diagnoses, pred_window=2, observing_window=2,  H=hidden_size, embedding_size=200, drop=drop).to(device)
     
     for num, (name, param) in enumerate(model.named_parameters()):
         if num < 21:
@@ -2173,12 +2170,8 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
 #                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
 
 
-<<<<<<< HEAD
-PRETRAINED_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/pretraining/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
+PRETRAINED_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/pretraining/test_model/model.pt'
 # PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
-=======
-PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
->>>>>>> 710a193e369b01a7be2f57c086f1b133af40afa2
 main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', pos_weight=None, \
     small_dataset=True, use_gpu=False, project_name='fixed_stages_model', experiment='test', oversampling=False, \
         diagnoses='icd', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=512, \
