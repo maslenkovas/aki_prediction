@@ -2173,8 +2173,12 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
 #                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
 
 
+<<<<<<< HEAD
 PRETRAINED_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/pretraining/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
 # PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
+=======
+PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
+>>>>>>> 710a193e369b01a7be2f57c086f1b133af40afa2
 main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', pos_weight=None, \
     small_dataset=True, use_gpu=False, project_name='fixed_stages_model', experiment='test', oversampling=False, \
         diagnoses='icd', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=512, \
