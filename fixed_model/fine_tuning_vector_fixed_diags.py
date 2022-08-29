@@ -1341,10 +1341,12 @@ if three_stages_model:
             self.pred_window = pred_window
             self.H = H
             self.max_length = max_length
+
             if diags == 'titles':
                 self.max_length_diags = 400
             else:
                 self.max_length_diags = 40
+
             self.embedding_size = embedding_size
             self.vocab_size = vocab_size
             self.device = device
@@ -1393,7 +1395,7 @@ if three_stages_model:
                 full_output = torch.cat([full_output, output_lstm_day], dim=1) # [16, 768]
 
             # print('full_output size: ', full_output.size(), '\n')
-            output = self.fc_adm (full_output)
+            output = self.fc_adm(full_output)
             # print('output after fc_adm size: ', output.size(), '\n')
             output, _ = self.lstm_adm(output)
             # print('output after lstm_adm', output.size())
@@ -1762,20 +1764,20 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
         device='cpu'
 
     #paths
-    CURR_PATH = os.getcwd()
+    CURR_PATH = os.getcwd() + '/LSTM/'
     print(f'Current working directory is {CURR_PATH}')
     PKL_PATH = CURR_PATH+'/pickles/'
     DF_PATH = CURR_PATH +'/dataframes/'
 
-    destination_folder = '/l/users/svetlana.maslenkova/models' + '/three_stages_model/fine_tuning/'
-    # destination_folder = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/training/'
+    # destination_folder = '/l/users/svetlana.maslenkova/models' + '/three_stages_model/fine_tuning/'
+    destination_folder = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/training/'
     
     if diagnoses=='icd':
-        TOKENIZER_PATH = CURR_PATH + '/aki_prediction/' + '/tokenizer.json'
-        TXT_DIR_TRAIN = CURR_PATH + '/aki_prediction/' + '/txt_files/train'
+        TOKENIZER_PATH = CURR_PATH + 'aki_prediction' + '/tokenizer.json'
+        TXT_DIR_TRAIN = CURR_PATH + 'aki_prediction' + '/txt_files/train'
     elif diagnoses=='titles':
-        TOKENIZER_PATH = CURR_PATH + '/aki_prediction/'+ '/tokenizer_titles.json'
-        TXT_DIR_TRAIN = CURR_PATH + '/aki_prediction/'+ '/txt_files/titles_diags'
+        TOKENIZER_PATH = CURR_PATH + 'aki_prediction'+ '/tokenizer_titles.json'
+        TXT_DIR_TRAIN = CURR_PATH + 'aki_prediction'+ '/txt_files/titles_diags'
 
     # Training the tokenizer
     if exists(TOKENIZER_PATH):
@@ -1801,10 +1803,15 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
         print(f'Vocab size is {tokenizer.get_vocab_size()}')
 
     # variables for classes
-    if fixed_model_with_diags or three_stages_model:
+    if fixed_model_with_diags:
         max_length = 400
     elif new_fixed_model:
         max_length = {'demographics':5+2, 'diagnoses':35+2, 'lab_tests':300+2, 'vitals':31+2, 'medications':256+2}
+    elif three_stages_model and diagnoses=='icd':
+        max_length = 40
+    elif three_stages_model and diagnoses=='titles':
+        max_length = 400
+        
     vocab_size = tokenizer.get_vocab_size()
     embedding_size = 200
     dimension = 128
@@ -2158,20 +2165,21 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', pos_w
 #                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
 
 # # 50118, 50120, 50121 || 50140, 50141, 50142
-PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_lr0.0001_Adam_temp0.05_drop0.1/model.pt'
-main(saving_folder_name=None, additional_name='3_0.05_', criterion='BCELoss', pos_weight=None, \
-    small_dataset=False, use_gpu=True, project_name='fixed_stages_model', experiment='pretrained', oversampling=False, \
-        diagnoses='titles', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=4000, \
-            LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1000, wandb_mode='online', \
-                PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
-
-
-# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
-# main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', pos_weight=None, \
-#     small_dataset=True, use_gpu=False, project_name='fixed_stages_model', experiment='test', oversampling=False, \
-#         diagnoses='icd', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=512, \
-#             LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1, wandb_mode='disabled', \
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_lr0.0001_Adam_temp0.05_drop0.1/model.pt'
+# main(saving_folder_name=None, additional_name='3_0.05_', criterion='BCELoss', pos_weight=None, \
+#     small_dataset=False, use_gpu=True, project_name='fixed_stages_model', experiment='pretrained', oversampling=False, \
+#         diagnoses='titles', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=4000, \
+#             LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1000, wandb_mode='online', \
 #                 PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
+
+
+PRETRAINED_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/pretraining/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
+# PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
+main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', pos_weight=None, \
+    small_dataset=True, use_gpu=False, project_name='fixed_stages_model', experiment='test', oversampling=False, \
+        diagnoses='icd', pred_window=2,  observing_window=2, weight_decay=0, BATCH_SIZE=512, \
+            LR=0.00001, min_frequency=10, hidden_size=128, drop=0.6, num_epochs=1, wandb_mode='disabled', \
+                PRETRAINED_PATH=PRETRAINED_PATH, run_id=None, checkpoint=None)
 
 # 50125, 
 # PRETRAINED_PATH = '/l/users/svetlana.maslenkova/models/pretraining/three_stages/STG_bs512_390k_icd_lr0.0001_Adam_temp0.1_drop0.1/model.pt'
