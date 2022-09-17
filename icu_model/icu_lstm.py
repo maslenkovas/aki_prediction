@@ -357,7 +357,7 @@ def train(model,
             global_step += 1
             if global_step%200==0:
                 print(f'Step {global_step}/{len(train_loader)//tensor_labels.size(0)}')
-            # wandb.log({'step_train_loss': loss.item(), 'global_step': global_step})
+            wandb.log({'step_train_loss': loss.item(), 'global_step': global_step})
             
         if scheduler is not None:
             scheduler.step()
@@ -398,33 +398,41 @@ def train(model,
         train_loss_list.append(epoch_average_train_loss)
         valid_loss_list.append(epoch_average_valid_loss)
 
-        stages = ['AKI_1', 'AKI_2', 'AKI_3']
-        for w in range(stacked_labels.ndim):
+        stages = ['AKI_1', 'AKI_2', 'AKI_3', 'ANY']
+        for w in range(len(stages)):
             stage = stages[w]
-            precision, recall, thresholds = precision_recall_curve(stacked_labels.T[w], stacked_probs.T[w])
+            if stage=='ANY':
+                labels = (np.sum(stacked_labels, axis=1) > 0).astype(int)
+                probs = np.max(stacked_probs, axis=1)
+            else:
+                labels = stacked_labels.T[w]
+                probs = stacked_probs.T[w]    
+
+            precision, recall, thresholds = precision_recall_curve(labels, probs)
             precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
             
             # convert to f score
-            fscore = np.round((2 * precision * recall) / (precision + recall), 2)
+            fscore = np.round((2 * precision * recall) / (precision + recall + 0.000001), 2)
             # locate the index of the largest f score
             ix = np.argmax(np.nan_to_num(fscore))
             threshold = np.round(thresholds[ix], 2)
-            stacked_preds = (stacked_probs.T[w] > threshold).astype(int)
-            y_true = stacked_labels.T[0]
-            y_pred = stacked_preds
+
+            y_true = labels
+            y_pred = (probs > threshold).astype(int)
+
             f1_score_ = np.round(f1_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
             recall_score_ = np.round(recall_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
             tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
             specificity =  np.round(tn / (tn + fp), 2)
             pr_auc = np.round(auc(recall, precision), 2)
-            # wandb.log({'val_f1_score_'+stage: f1_score_, 'val_recall_score_'+stage:recall_score_, \
-            #             'val_specificity'+stage:specificity, 'val_pr_auc'+stage:pr_auc,\
-            #                 'epoch': epoch+1})
+            wandb.log({'val_f1_score_'+stage: f1_score_, 'val_recall_score_'+stage:recall_score_, \
+                        'val_specificity'+stage:specificity, 'val_pr_auc'+stage:pr_auc,\
+                            'epoch': epoch+1})
 
         global_steps_list.append(global_step)
-        # wandb.log({'epoch_average_train_loss': epoch_average_train_loss,
-        #             'epoch_average_valid_loss': epoch_average_valid_loss,
-        #             'epoch': epoch+1})
+        wandb.log({'epoch_average_train_loss': epoch_average_train_loss,
+                    'epoch_average_valid_loss': epoch_average_valid_loss,
+                    'epoch': epoch+1})
 
         # resetting running values
         running_loss = 0.0                
@@ -507,7 +515,7 @@ def evaluate(model, test_loader, threshold=None, log_res=True):
             precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
             
             # convert to f score
-            fscore = np.round((2 * precision * recall) / (precision + recall), 2)
+            fscore = np.round((2 * precision * recall) / (precision + recall + 0.000001), 2)
 
             # locate the index of the largest f score
             ix = np.argmax(np.nan_to_num(fscore))
@@ -574,12 +582,21 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
 
     CURR_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM'
     DF_PATH = CURR_PATH +'/dataframes_2/'
-    destination_folder = CURR_PATH + '/training/'
+    destination_folder = CURR_PATH + '/icu_training/'
     TXT_FILES_CODES_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/txt_files/icu_train'
     TOKENIZER_CODES_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/aki_prediction/tokenizer_icu_codes.json'
     test_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/test_data/'
     train_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/train_data/'
     val_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/val_data/'
+
+    # CURR_PATH = os.getcwd()
+    # DF_PATH = CURR_PATH +'/icu_data/dataframes_2/'
+    # destination_folder = '/l/users/svetlana.maslenkova/models' + '/icu_models/no_pretraining/'
+    # TXT_FILES_CODES_PATH = CURR_PATH + '/aki_prediction/txt_files/icu_train'
+    # TOKENIZER_CODES_PATH = CURR_PATH + '/aki_prediction/tokenizer_icu_codes.json'
+    # test_data_path = CURR_PATH + '/icu_data/dataframes_2/test_data/'
+    # train_data_path = CURR_PATH + '/icu_data/dataframes_2/train_data/'
+    # val_data_path = CURR_PATH + '/icu_data/dataframes_2/val_data/'
 
     # Training the tokenizer
     if exists(TOKENIZER_CODES_PATH):
@@ -685,8 +702,14 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     wandb.finish()
 
 
+# # test run
+# main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
+#     use_gpu=True, project_name='test', experiment='test', oversampling=False, 
+#             pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=5, hidden_size=128,\
+#                 drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+
 
 main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
-    use_gpu=True, project_name='test', experiment='test', oversampling=False, 
-            pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=5, hidden_size=128,\
-                drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+    use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, 
+            pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=0.0001, min_frequency=5, hidden_size=128,\
+                drop=0.6, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
