@@ -1,4 +1,5 @@
 # IMPORTS
+from email.policy import default
 import pickle5 as pickle
 
 # Libraries
@@ -7,6 +8,8 @@ import pandas as pd
 import wandb
 import os
 from os.path import exists
+import argparse
+
 
 # Evaluation
 from sklearn.metrics import classification_report, precision_recall_curve, auc, roc_auc_score, \
@@ -292,6 +295,7 @@ class EHR_MODEL(nn.Module):
 
 
 ######################################## TRAIN ###########################################################
+######################################## TRAIN ###########################################################
 def train(model, 
         optimizer,
         train_loader,
@@ -566,7 +570,6 @@ def evaluate(model, test_loader, threshold=None, log_res=True):
 
     return
 
-
 ######################################## MAIN ###########################################################
 def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     use_gpu=True, project_name='test', experiment='test', oversampling=False,\
@@ -580,6 +583,7 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
         device='cpu'
     print(f'Device: {device}')         
 
+<<<<<<< HEAD
     CURR_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM'
     DF_PATH = CURR_PATH +'/dataframes_2/'
     destination_folder = CURR_PATH + '/icu_training/'
@@ -588,6 +592,16 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     test_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/test_data/'
     train_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/train_data/'
     val_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/val_data/'
+=======
+    CURR_PATH = os.getcwd()
+    DF_PATH = CURR_PATH +'icu_data/dataframes_2/'
+    destination_folder = '/l/users/svetlana.maslenkova/models' + '/icu_models/no_pretraining/'
+    TXT_FILES_CODES_PATH = CURR_PATH + '/aki_prediction/txt_files/icu_train'
+    TOKENIZER_CODES_PATH = CURR_PATH + '/aki_prediction/tokenizer_icu_codes.json'
+    test_data_path = CURR_PATH + '/icu_data/dataframes_2/test_data/'
+    train_data_path = CURR_PATH + '/icu_data/dataframes_2/train_data/'
+    val_data_path = CURR_PATH + '/icu_data/dataframes_2/val_data/'
+>>>>>>> 24baafb6fdbf158993ab0463ec2aa5da59737c83
 
     # CURR_PATH = os.getcwd()
     # DF_PATH = CURR_PATH +'/icu_data/dataframes_2/'
@@ -702,6 +716,7 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     wandb.finish()
 
 
+<<<<<<< HEAD
 # # test run
 # main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
 #     use_gpu=True, project_name='test', experiment='test', oversampling=False, 
@@ -713,3 +728,42 @@ main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, 
             pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=0.0001, min_frequency=5, hidden_size=128,\
                 drop=0.6, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+=======
+def _parse_args():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--additional_name', type=str, default="", help="The options are: 1_,")
+    parser.add_argument('--lr', type=float, default=0.00001, help="This is the learning rate.")
+
+    return parser.parse_known_args()
+
+
+
+# # test run
+# main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
+#     use_gpu=False, project_name='test', experiment='test', oversampling=False, 
+#             pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=5, hidden_size=128,\
+#                 drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+
+# # 57897, 57903
+# main(saving_folder_name=None, additional_name='3_', criterion='BCELoss', \
+#     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, 
+#             pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=0.0001, min_frequency=5, hidden_size=128,\
+#                 drop=0.6, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+
+## 57907
+args, _ = _parse_args()
+
+print(args)
+# ## 57909, 57910, 57911  lr=0.00001
+# main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
+#     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
+#             pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=args.lr, min_frequency=5, hidden_size=128,\
+#                 drop=0.6, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+
+#  57912,57913,57914  lr=0.00001, drop=0.4
+main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
+    use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
+            pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=args.lr, min_frequency=5, hidden_size=128,\
+                drop=0.4, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+>>>>>>> 24baafb6fdbf158993ab0463ec2aa5da59737c83
