@@ -76,10 +76,9 @@ def get_lr(optimizer):
 
 
 ######################################## DATASET ###########################################################
-max_lengths_dict = {'demographics':30, 'previous_diags_codes':65,'labs_codes':240, 'icu_12h_info_codes':120}
 class MyDataset(Dataset):
 
-    def __init__(self, data_path, tokenizer, max_length_dict=max_lengths_dict, names=True, pred_window=2, observing_window=2):
+    def __init__(self, data_path, tokenizer, max_length=300, names=True, pred_window=2, observing_window=2):
         # pred_window: number of 12h windows to predict AKI onset
         # observing_window: number of 12h windows to observe
         self.data_path = data_path
@@ -91,10 +90,7 @@ class MyDataset(Dataset):
         self.tokenizer = tokenizer
         self.observing_window = observing_window
         self.pred_window = pred_window
-        self.max_length_12h = max_lengths_dict['icu_12h_info_codes']
-        self.max_length_24h = max_lengths_dict['labs_codes']
-        self.max_length_demo = max_lengths_dict['demographics']
-        self.max_length_diags = max_lengths_dict['previous_diags_codes']
+        self.max_length = max_length
 
         
     def __len__(self):
@@ -136,7 +132,7 @@ class MyDataset(Dataset):
         df['outputs_codes'] = df['outputs_codes'].fillna('')
         df['medications_names'] = df['medications_names'].fillna('')
         df['medications_codes'] = df['medications_codes'].fillna('')
-
+        df = df.replace(r';', '', regex=True)
         df['AKI_1'] = df['AKI_1'].fillna(0)
         df['AKI_2'] = df['AKI_2'].fillna(0)
         df['AKI_3'] = df['AKI_3'].fillna(0)
@@ -175,6 +171,8 @@ class MyDataset(Dataset):
         AKI_3_labels_l = []
         info_12h_list = []
         info_24h_list = []
+        day_l = []
+        info_l = []
         used_day_id_l = []
         used_wind_id_l = []
 
@@ -188,17 +186,17 @@ class MyDataset(Dataset):
                         AKI_1_labels_l.append(0)
                         AKI_2_labels_l.append(0)
                         AKI_3_labels_l.append(0)
-                        info_12h_list.append( self.tokenize('',  self.max_length_12h))
+                        day_l.append('')
                         if day not in used_day_id_l:
-                            info_24h_list.append( self.tokenize('',  self.max_length_24h))
+                            day_l.append('')
                             used_day_id_l.append(day)
                     else:
                         AKI_1_labels_l.append(self.df[self.df.icu_day_id==day].AKI_1.values[0])
                         AKI_2_labels_l.append(self.df[self.df.icu_day_id==day].AKI_2.values[0])
                         AKI_3_labels_l.append(self.df[self.df.icu_day_id==day].AKI_3.values[0])
-                        info_12h_list.append(self.tokenize(self.df[self.df.icu_day_id==day].icu_12h_info_codes.values[0],  self.max_length_12h))
+                        day_l.append(self.df[self.df.icu_day_id==day].icu_12h_info_codes.values[0])
                         if day not in used_day_id_l:
-                            info_24h_list.append( self.tokenize(self.df[self.df.icu_day_id==day].labs_codes.values[0],  self.max_length_24h))
+                            day_l.append(self.df[self.df.icu_day_id==day].labs_codes.values[0])
                             used_day_id_l.append(day)
                 else:
                     i = list(windows_12h).index(wind)
@@ -206,14 +204,18 @@ class MyDataset(Dataset):
                     AKI_1_labels_l.append(AKI_1_status[i])
                     AKI_2_labels_l.append(AKI_2_status[i])
                     AKI_3_labels_l.append(AKI_3_status[i])
-                    info_12h_list.append(self.tokenize(info_12h[i], self.max_length_12h))
+                    day_l.append(info_12h[i])
                     if day not in used_day_id_l:
-                        info_24h_list.append(self.tokenize(info_24h_labs[i], self.max_length_24h))
+                        day_l.append(info_24h_labs[i])
                         used_day_id_l.append(day)
                 used_wind_id_l.append(wind)
+            day_info = ' '.join(day_l)
+            info_l.append(self.tokenize(day_info, self.max_length))
 
-        demographics = self.tokenize(info_demo, self.max_length_demo)
-        diagnoses = self.tokenize(info_diagnoses, self.max_length_diags)
+        demographics = info_demo
+        diagnoses = info_diagnoses
+        demo_diags = ' '.join([demographics, diagnoses])
+        demo_diags = self.tokenize(demo_diags, 50)
 
         # making 24h labels from 12h
         AKI_1_labels = [int(bool(np.sum(AKI_1_labels_l[i:i+2]))) for i in np.arange(0, self.observing_window + self.pred_window, 2)]
@@ -221,23 +223,21 @@ class MyDataset(Dataset):
         AKI_3_labels = [int(bool(np.sum(AKI_3_labels_l[i:i+2]))) for i in np.arange(0, self.observing_window + self.pred_window, 2)]
 
         #make tensors
-        tensor_12h_info = torch.tensor(info_12h_list[:self.observing_window], dtype=torch.int64)
-        tensor_24h_labs = torch.tensor(info_24h_list[:self.observing_window//2], dtype=torch.int64)
-        tensor_diagnoses = torch.tensor(diagnoses, dtype=torch.int64)
-        tensor_demographics = torch.tensor(demographics, dtype=torch.int64)
+        tensor_day_info = torch.tensor(info_l[:self.observing_window//2], dtype=torch.int64)
+        tensor_demo_diags = torch.tensor(demo_diags, dtype=torch.int64)
+
         tensor_labels = torch.tensor([*AKI_1_labels[self.observing_window//2:self.observing_window//2 + self.pred_window//2],\
                                       *AKI_2_labels[self.observing_window//2:self.observing_window//2 + self.pred_window//2],\
                                       *AKI_3_labels[self.observing_window//2:self.observing_window//2 + self.pred_window//2] ]  \
                                         , dtype=torch.float64)
     
 
-        return tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics, tensor_labels, {'stay_id':self.stay_id, 'day_id':used_day_id_l, 'wind_id':used_wind_id_l}
-
+        return tensor_day_info, tensor_demo_diags, tensor_labels, {'stay_id':self.stay_id, 'day_id':used_day_id_l, 'wind_id':used_wind_id_l}
 
 ###################################################### MODEL ###########################################################
 
 class EHR_MODEL(nn.Module):
-    def __init__(self, max_lengths_dict, vocab_size, pred_window=2, observing_window=2,  H=128, embedding_size=200, drop=0.6):
+    def __init__(self, max_length, vocab_size, pred_window=2, observing_window=2,  H=128, embedding_size=200, drop=0.6):
         super(EHR_MODEL, self).__init__()
 
         self.observing_window = observing_window
@@ -246,53 +246,36 @@ class EHR_MODEL(nn.Module):
         self.p = drop
         self.vocab_size = vocab_size
         self.embedding_size = embedding_size
-        self.max_length_demographics = max_lengths_dict['demographics']
-        self.max_length_previous_diags = max_lengths_dict['previous_diags_codes']
-        self.max_length_labs_24h = max_lengths_dict['labs_codes']
-        self.max_length_icu_12h = max_lengths_dict['icu_12h_info_codes']
+        self.max_length_demo_diags = 50
+        self.max_length = max_length
+
         # layers of the network
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
-        self.lstm_1 = nn.LSTM(input_size=self.embedding_size,
-                              hidden_size=self.H,
-                              num_layers=1,
-                              batch_first=True,
-                              bidirectional=False)
-
-        self.fc_1 = nn.Linear(self.embedding_size, 256)
-        self.fc_2 = nn.Linear(256* (self.max_length_demographics + self.max_length_previous_diags) + self.H * (self.max_length_labs_24h + self.max_length_icu_12h * 2) , 4096)
-        self.lstm_2 = nn.LSTM(input_size=4096,
+        self.lstm = nn.LSTM(input_size=self.embedding_size,
                               hidden_size=self.H,
                               num_layers=1,
                               batch_first=True,
                               bidirectional=True)
-        self.fc_3 = nn.Linear(self.H*2, 3)
+
+        self.fc_1 = nn.Linear(2 * self.H * (self.max_length_demo_diags + self.max_length) , 2048)
+        self.fc_2 = nn.Linear(2048, 3)
         self.drop = nn.Dropout(p=self.p)
 
-    def forward(self, tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics):
+    def forward(self, tensor_day_info, tensor_demo_diags):
 
-        out_emb_demo = self.embedding(tensor_demographics) # batch_size x max_length_demographics x embedding_size
-        out_emb_diags = self.embedding(tensor_diagnoses) # batch_size x max_length_previous_diags x embedding_size
-        out_emb_24h = self.embedding(tensor_24h_labs.squeeze(1))    # batch_size x max_length_labs_24h x embedding_size
-        out_emb_12h_1 = self.embedding(tensor_12h_info[:,0,:])
-        out_emb_12h_2 = self.embedding(tensor_12h_info[:,1,:])
-        # concatanate and reshape embeddings
-        out_emb_12h = torch.cat([ out_emb_12h_1, out_emb_12h_2], dim=1)
-        out_static = self.fc_1(torch.cat([out_emb_demo, out_emb_diags], dim=1))
-        out_static = out_static.reshape(out_static.size(0), out_static.size(1)*out_static.size(2))
-        # pass 24h information to lstm
-        out_lstm_1_24h, (hn, cn) = self.lstm_1(out_emb_24h)         # batch_size x max_length_labs_24h x H
-        out_lstm_1_24h = out_lstm_1_24h.reshape(out_lstm_1_24h.size(0), out_lstm_1_24h.size(1)*out_lstm_1_24h.size(2))   # batch_size x max_length_labs_24h * H
-        # pass 12h info to lstm
-        out_lstm_1_12h, (hn, cn) = self.lstm_1(out_emb_12h)
-        out_lstm_1_12h = out_lstm_1_12h.reshape(out_lstm_1_12h.size(0), out_lstm_1_12h.size(1)*out_lstm_1_12h.size(2))
+        out_emb_demo_diags = self.embedding(tensor_demo_diags) # batch_size x max_length_demographics x embedding_size
+        out_emb_day_info = torch.squeeze(self.embedding(tensor_day_info), 1) # batch_size x max_length_previous_diags x embedding_size
+        embedded = torch.cat([out_emb_demo_diags, out_emb_day_info], dim=1)
 
-        full_output = torch.cat([out_static, out_lstm_1_24h, out_lstm_1_12h], dim=1)
-        out_fc_2 = self.fc_2(full_output)
-        out_lstm_2, (hn, cn) = self.lstm_2(out_fc_2)
-        out_lstm_2 = self.drop(out_lstm_2)
-        out_fc_3 = torch.squeeze(self.fc_3(out_lstm_2), 1)
+        out_lstm, _ = self.lstm(embedded)
+        out_lstm = out_lstm.reshape(out_lstm.size(0), out_lstm.size(1)*out_lstm.size(2))
 
-        return out_fc_3
+        output = self.fc_1(out_lstm)
+        output = self.drop(output)
+        output = self.fc_2(output)
+        output = torch.squeeze(output, 1)
+
+        return output
 
 
 
@@ -341,15 +324,14 @@ def train(model,
     for epoch in range(num_epochs):  
 
         model.train()
-        for tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics, tensor_labels, _  in train_loader:
+        for tensor_day_info, tensor_demo_diags, tensor_labels, _  in train_loader:
             # transferring everything to GPU
             tensor_labels = tensor_labels.to(device)
-            tensor_12h_info = tensor_12h_info.to(device)
-            tensor_24h_labs = tensor_24h_labs.to(device)
-            tensor_diagnoses = tensor_diagnoses.to(device)
-            tensor_demographics = tensor_demographics.to(device)
+            tensor_day_info = tensor_day_info.to(device)
+            tensor_demo_diags = tensor_demo_diags.to(device)
+            print(f'Step {global_step}/{len(train_loader)//tensor_labels.size(0)}')
 
-            output = model(tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics)
+            output = model(tensor_day_info, tensor_demo_diags)
 
             if use_sigmoid:
                 loss = criterion(activation_fn(output), tensor_labels.type(torch.float32))
@@ -362,8 +344,7 @@ def train(model,
 
             running_loss += loss.item()            
             global_step += 1
-            if global_step%200==0:
-                print(f'Step {global_step}/{len(train_loader)//tensor_labels.size(0)}')
+
             wandb.log({'step_train_loss': loss.item(), 'global_step': global_step})
             
         if scheduler is not None:
@@ -375,14 +356,12 @@ def train(model,
         stacked_probs = torch.tensor([]).to(device)
         with torch.no_grad():
             # validation loop
-            for tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics, tensor_labels, _  in valid_loader:
+            for tensor_day_info, tensor_demo_diags, tensor_labels,  _  in valid_loader:
                 tensor_labels = tensor_labels.to(device)
-                tensor_12h_info = tensor_12h_info.to(device)
-                tensor_24h_labs = tensor_24h_labs.to(device)
-                tensor_diagnoses = tensor_diagnoses.to(device)
-                tensor_demographics = tensor_demographics.to(device)
+                tensor_day_info = tensor_day_info.to(device)
+                tensor_demo_diags = tensor_demo_diags.to(device)
 
-                output = model(tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics)
+                output = model(tensor_day_info, tensor_demo_diags)
 
                 if use_sigmoid:
                     loss = criterion(activation_fn(output), tensor_labels.type(torch.float32))
@@ -483,17 +462,15 @@ def evaluate(model, test_loader, threshold=None, log_res=True):
     model.eval()
     step = 1
     with torch.no_grad():
-        for  tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics, tensor_labels, _  in test_loader:
+        for  tensor_day_info, tensor_demo_diags,  tensor_labels, _  in test_loader:
             if step % 100==0:
                 print(f'Step {step}/{len(test_loader)}' )
 
-            tensor_12h_info = tensor_12h_info.to(device)
-            tensor_24h_labs = tensor_24h_labs.to(device)
-            tensor_diagnoses = tensor_diagnoses.to(device)
-            tensor_demographics = tensor_demographics.to(device)
+            tensor_day_info = tensor_day_info.to(device)
+            tensor_demo_diags = tensor_demo_diags.to(device)
             tensor_labels = tensor_labels.to(device)
 
-            probs = model(tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics)
+            probs = model(tensor_day_info, tensor_demo_diags)
             probs = nn.Sigmoid()(probs)
             # output = (probs > threshold).int()
 
@@ -617,19 +594,19 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
         tokenizer = Tokenizer.from_file(TOKENIZER_CODES_PATH)
         print(f'Tokenizer is loaded from ==> {TOKENIZER_CODES_PATH}/tokenizer.json. Vocab size is {tokenizer.get_vocab_size()}')
 
-    max_lengths_dict = {'demographics':30, 'previous_diags_codes':65, 'labs_codes':240, 'icu_12h_info_codes':120}
     vocab_size = tokenizer.get_vocab_size()
     embedding_size = 200
     dimension = 128
+    max_length = 350
 
-    test_dataset = MyDataset(data_path=test_data_path, tokenizer=tokenizer, max_length_dict=max_lengths_dict)
+    train_dataset = MyDataset(data_path=train_data_path, tokenizer=tokenizer, max_length=max_length)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+    test_dataset = MyDataset(data_path=test_data_path, tokenizer=tokenizer, max_length=max_length)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    val_dataset = MyDataset(data_path=val_data_path, tokenizer=tokenizer, max_length_dict=max_lengths_dict)
+    val_dataset = MyDataset(data_path=val_data_path, tokenizer=tokenizer, max_length=max_length)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
-
-    train_dataset = MyDataset(data_path=train_data_path, tokenizer=tokenizer, max_length_dict=max_lengths_dict)
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     if oversampling:
         i = 0
@@ -651,7 +628,7 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
 
         train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, num_workers=1, sampler=sampler)
 
-    model = EHR_MODEL(max_lengths_dict, vocab_size=tokenizer.get_vocab_size()).to(device)
+    model = EHR_MODEL(max_length=max_length, vocab_size=tokenizer.get_vocab_size()).to(device)
     optimizer = optim.Adam(model.parameters(), lr=LR)
 
     if PRETRAINED_PATH is not None:
@@ -723,25 +700,25 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
 #                 drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
 
 
-main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
-    use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, 
-            pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=0.0001, min_frequency=5, hidden_size=128,\
-                drop=0.6, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+# main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
+#     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, 
+#             pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=0.0001, min_frequency=5, hidden_size=128,\
+#                 drop=0.6, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
 
-def _parse_args():
-    parser = argparse.ArgumentParser()
+# def _parse_args():
+#     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--additional_name', type=str, default="", help="The options are: 1_,")
-    parser.add_argument('--lr', type=float, default=0.00001, help="This is the learning rate.")
+#     parser.add_argument('--additional_name', type=str, default="", help="The options are: 1_,")
+#     parser.add_argument('--lr', type=float, default=0.00001, help="This is the learning rate.")
 
-    return parser.parse_known_args()
+#     return parser.parse_known_args()
 
 
 
 # test run
 main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
-    use_gpu=False, project_name='test', experiment='test', oversampling=False, 
-            pred_window=2, observing_window=2, BATCH_SIZE=8, LR=0.0001, min_frequency=5, hidden_size=128,\
+    use_gpu=True, project_name='test', experiment='test', oversampling=False, 
+            pred_window=2, observing_window=2, BATCH_SIZE=512, LR=0.0001, min_frequency=5, hidden_size=128,\
                 drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
 
 # # 57897, 57903
