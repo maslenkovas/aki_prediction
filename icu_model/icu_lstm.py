@@ -823,7 +823,14 @@ print(args)
 #             pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=args.lr, min_frequency=5, hidden_size=128,\
 #                 drop=0.6, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
 
-#  57912,57913,57914  lr=0.00001, drop=0.4
+# #  57912,57913,57914  lr=0.00001, drop=0.4
+# main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
+#     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
+#             pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=args.lr, min_frequency=5, hidden_size=128,\
+#                 drop=0.4, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+
+
+#    lr=0.00001, drop=0.4
 main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
             pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=args.lr, min_frequency=5, hidden_size=128,\
