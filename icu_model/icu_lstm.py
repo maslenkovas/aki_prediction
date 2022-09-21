@@ -234,7 +234,66 @@ class MyDataset(Dataset):
         return tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics, tensor_labels, {'stay_id':self.stay_id, 'day_id':used_day_id_l, 'wind_id':used_wind_id_l}
 
 
-######################################## MODEL ###########################################################
+###################################################### MODEL ###########################################################
+
+# class EHR_MODEL(nn.Module):
+#     def __init__(self, max_lengths_dict, vocab_size, pred_window=2, observing_window=2,  H=128, embedding_size=200, drop=0.6):
+#         super(EHR_MODEL, self).__init__()
+
+#         self.observing_window = observing_window
+#         self.pred_window = pred_window
+#         self.H = H
+#         self.p = drop
+#         self.vocab_size = vocab_size
+#         self.embedding_size = embedding_size
+#         self.max_length_demographics = max_lengths_dict['demographics']
+#         self.max_length_previous_diags = max_lengths_dict['previous_diags_codes']
+#         self.max_length_labs_24h = max_lengths_dict['labs_codes']
+#         self.max_length_icu_12h = max_lengths_dict['icu_12h_info_codes']
+#         # layers of the network
+#         self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
+#         self.lstm_1 = nn.LSTM(input_size=self.embedding_size,
+#                               hidden_size=self.H,
+#                               num_layers=1,
+#                               batch_first=True,
+#                               bidirectional=False)
+
+#         self.fc_1 = nn.Linear(self.embedding_size, 256)
+#         self.fc_2 = nn.Linear(256* (self.max_length_demographics + self.max_length_previous_diags) + self.H * (self.max_length_labs_24h + self.max_length_icu_12h * 2) , 4096)
+#         self.lstm_2 = nn.LSTM(input_size=4096,
+#                               hidden_size=self.H,
+#                               num_layers=1,
+#                               batch_first=True,
+#                               bidirectional=True)
+#         self.fc_3 = nn.Linear(self.H*2, 3)
+#         self.drop = nn.Dropout(p=self.p)
+
+#     def forward(self, tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics):
+
+#         out_emb_demo = self.embedding(tensor_demographics) # batch_size x max_length_demographics x embedding_size
+#         out_emb_diags = self.embedding(tensor_diagnoses) # batch_size x max_length_previous_diags x embedding_size
+#         out_emb_24h = self.embedding(tensor_24h_labs.squeeze(1))    # batch_size x max_length_labs_24h x embedding_size
+#         out_emb_12h_1 = self.embedding(tensor_12h_info[:,0,:])
+#         out_emb_12h_2 = self.embedding(tensor_12h_info[:,1,:])
+#         # concatanate and reshape embeddings
+#         out_emb_12h = torch.cat([ out_emb_12h_1, out_emb_12h_2], dim=1)
+#         out_static = self.fc_1(torch.cat([out_emb_demo, out_emb_diags], dim=1))
+#         out_static = out_static.reshape(out_static.size(0), out_static.size(1)*out_static.size(2))
+#         # pass 24h information to lstm
+#         out_lstm_1_24h, (hn, cn) = self.lstm_1(out_emb_24h)         # batch_size x max_length_labs_24h x H
+#         out_lstm_1_24h = out_lstm_1_24h.reshape(out_lstm_1_24h.size(0), out_lstm_1_24h.size(1)*out_lstm_1_24h.size(2))   # batch_size x max_length_labs_24h * H
+#         # pass 12h info to lstm
+#         out_lstm_1_12h, (hn, cn) = self.lstm_1(out_emb_12h)
+#         out_lstm_1_12h = out_lstm_1_12h.reshape(out_lstm_1_12h.size(0), out_lstm_1_12h.size(1)*out_lstm_1_12h.size(2))
+
+#         full_output = torch.cat([out_static, out_lstm_1_24h, out_lstm_1_12h], dim=1)
+#         out_fc_2 = self.fc_2(full_output)
+#         out_lstm_2, (hn, cn) = self.lstm_2(out_fc_2)
+#         out_lstm_2 = self.drop(out_lstm_2)
+#         out_fc_3 = torch.squeeze(self.fc_3(out_lstm_2), 1)
+
+#         return out_fc_3
+
 
 class EHR_MODEL(nn.Module):
     def __init__(self, max_lengths_dict, vocab_size, pred_window=2, observing_window=2,  H=128, embedding_size=200, drop=0.6):
@@ -252,20 +311,21 @@ class EHR_MODEL(nn.Module):
         self.max_length_icu_12h = max_lengths_dict['icu_12h_info_codes']
         # layers of the network
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
-        self.lstm_1 = nn.LSTM(input_size=self.embedding_size,
-                              hidden_size=self.H,
-                              num_layers=1,
-                              batch_first=True,
-                              bidirectional=False)
-
-        self.fc_1 = nn.Linear(self.embedding_size, 256)
-        self.fc_2 = nn.Linear(256* (self.max_length_demographics + self.max_length_previous_diags) + self.H * (self.max_length_labs_24h + self.max_length_icu_12h * 2) , 4096)
-        self.lstm_2 = nn.LSTM(input_size=4096,
+        self.lstm_cont = nn.LSTM(input_size=self.embedding_size,
                               hidden_size=self.H,
                               num_layers=1,
                               batch_first=True,
                               bidirectional=True)
-        self.fc_3 = nn.Linear(self.H*2, 3)
+
+        self.lstm_static = nn.LSTM(input_size=self.embedding_size,
+                              hidden_size=self.H,
+                              num_layers=2,
+                              batch_first=True,
+                              bidirectional=True)
+
+        self.fc_1 = nn.Linear(2 * self.H * (self.max_length_demographics + self.max_length_previous_diags + self.max_length_labs_24h + self.max_length_icu_12h * 2) , 16384)
+        self.fc_2 = nn.Linear(16384, 2048)
+        self.fc_3 = nn.Linear(2048, 3)
         self.drop = nn.Dropout(p=self.p)
 
     def forward(self, tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics):
@@ -275,26 +335,31 @@ class EHR_MODEL(nn.Module):
         out_emb_24h = self.embedding(tensor_24h_labs.squeeze(1))    # batch_size x max_length_labs_24h x embedding_size
         out_emb_12h_1 = self.embedding(tensor_12h_info[:,0,:])
         out_emb_12h_2 = self.embedding(tensor_12h_info[:,1,:])
-        out_emb_12h = torch.cat([ out_emb_12h_1, out_emb_12h_2], dim=1)
+        # concatanate and reshape embeddings
+        out_emb_cont = torch.cat([ out_emb_12h_1, out_emb_24h, out_emb_12h_2], dim=1)
+        out_emb_statis = torch.cat([out_emb_demo, out_emb_diags], dim=1)
 
-        out_static = self.fc_1(torch.cat([out_emb_demo, out_emb_diags], dim=1))
-        out_static = out_static.reshape(out_static.size(0), out_static.size(1)*out_static.size(2))
+        out_lstm_cont, _ = self.lstm_cont(out_emb_cont)
+        out_lstm_cont = out_lstm_cont.reshape(out_lstm_cont.size(0), out_lstm_cont.size(1)*out_lstm_cont.size(2))
 
-        out_lstm_1_24h, (hn, cn) = self.lstm_1(out_emb_24h)         # batch_size x max_length_labs_24h x H
-        out_lstm_1_24h = out_lstm_1_24h.reshape(out_lstm_1_24h.size(0), out_lstm_1_24h.size(1)*out_lstm_1_24h.size(2))   # batch_size x max_length_labs_24h * H
+        out_lstm_static, _ = self.lstm_static(out_emb_statis)
+        out_lstm_static = out_lstm_static.reshape(out_lstm_static.size(0), out_lstm_static.size(1)*out_lstm_static.size(2))
 
-        out_lstm_1_12h, (hn, cn) = self.lstm_1(out_emb_12h)
-        out_lstm_1_12h = out_lstm_1_12h.reshape(out_lstm_1_12h.size(0), out_lstm_1_12h.size(1)*out_lstm_1_12h.size(2))
-        full_output = torch.cat([out_static, out_lstm_1_24h, out_lstm_1_12h], dim=1)
-        out_fc_2 = self.fc_2(full_output)
-        out_lstm_2, (hn, cn) = self.lstm_2(out_fc_2)
-        out_lstm_2 = self.drop(out_lstm_2)
-        out_fc_3 = torch.squeeze(self.fc_3(out_lstm_2), 1)
+        out_lstm = torch.cat([out_lstm_cont, out_lstm_static], dim=1)
+        print('out_lstm: ', out_lstm.size())
+        output = self.fc_1(out_lstm)
+        output = self.drop(output)
+        output = self.fc_2(output)
+        output = self.drop(output)
+        output = self.fc_3(output)
+        output = torch.squeeze(output, 1)
 
-        return out_fc_3
+        return output
 
 
-######################################## TRAIN ###########################################################
+
+
+###########################################################################################################
 ######################################## TRAIN ###########################################################
 def train(model, 
         optimizer,
@@ -324,7 +389,8 @@ def train(model,
     global_steps_list = []
     stop_training = 0
 
-    sigmoid_fn = nn.Sigmoid()
+    # activation_fn = nn.Sigmoid()
+    activation_fn = nn.Softmax()
 
     if criterion == 'BCEWithLogitsLoss':
         criterion = nn.BCEWithLogitsLoss()
@@ -349,7 +415,7 @@ def train(model,
             output = model(tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics)
 
             if use_sigmoid:
-                loss = criterion(sigmoid_fn(output), tensor_labels.type(torch.float32))
+                loss = criterion(activation_fn(output), tensor_labels.type(torch.float32))
             else:
                 loss = criterion(output, tensor_labels.type(torch.float32))
 
@@ -382,12 +448,12 @@ def train(model,
                 output = model(tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics)
 
                 if use_sigmoid:
-                    loss = criterion(sigmoid_fn(output), tensor_labels.type(torch.float32))
+                    loss = criterion(activation_fn(output), tensor_labels.type(torch.float32))
                 else:
                     loss = criterion(output, tensor_labels.type(torch.float32))
 
                 valid_running_loss += loss.item()
-                probs = sigmoid_fn(output)
+                probs = activation_fn(output)
                 # stacking labels and predictions
                 stacked_labels = torch.cat([stacked_labels, tensor_labels], dim=0)
                 stacked_probs = torch.cat([stacked_probs, probs], dim=0, )
@@ -583,7 +649,6 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
         device='cpu'
     print(f'Device: {device}')         
 
-<<<<<<< HEAD
     CURR_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM'
     DF_PATH = CURR_PATH +'/dataframes_2/'
     destination_folder = CURR_PATH + '/icu_training/'
@@ -592,16 +657,14 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     test_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/test_data/'
     train_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/train_data/'
     val_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/val_data/'
-=======
-    CURR_PATH = os.getcwd()
-    DF_PATH = CURR_PATH +'icu_data/dataframes_2/'
-    destination_folder = '/l/users/svetlana.maslenkova/models' + '/icu_models/no_pretraining/'
-    TXT_FILES_CODES_PATH = CURR_PATH + '/aki_prediction/txt_files/icu_train'
-    TOKENIZER_CODES_PATH = CURR_PATH + '/aki_prediction/tokenizer_icu_codes.json'
-    test_data_path = CURR_PATH + '/icu_data/dataframes_2/test_data/'
-    train_data_path = CURR_PATH + '/icu_data/dataframes_2/train_data/'
-    val_data_path = CURR_PATH + '/icu_data/dataframes_2/val_data/'
->>>>>>> 24baafb6fdbf158993ab0463ec2aa5da59737c83
+    # CURR_PATH = os.getcwd()
+    # DF_PATH = CURR_PATH +'icu_data/dataframes_2/'
+    # destination_folder = '/l/users/svetlana.maslenkova/models' + '/icu_models/no_pretraining/'
+    # TXT_FILES_CODES_PATH = CURR_PATH + '/aki_prediction/txt_files/icu_train'
+    # TOKENIZER_CODES_PATH = CURR_PATH + '/aki_prediction/tokenizer_icu_codes.json'
+    # test_data_path = CURR_PATH + '/icu_data/dataframes_2/test_data/'
+    # train_data_path = CURR_PATH + '/icu_data/dataframes_2/train_data/'
+    # val_data_path = CURR_PATH + '/icu_data/dataframes_2/val_data/'
 
     # CURR_PATH = os.getcwd()
     # DF_PATH = CURR_PATH +'/icu_data/dataframes_2/'
@@ -716,7 +779,6 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     wandb.finish()
 
 
-<<<<<<< HEAD
 # # test run
 # main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
 #     use_gpu=True, project_name='test', experiment='test', oversampling=False, 
@@ -728,7 +790,7 @@ main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, 
             pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=0.0001, min_frequency=5, hidden_size=128,\
                 drop=0.6, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
-=======
+
 def _parse_args():
     parser = argparse.ArgumentParser()
 
@@ -766,4 +828,3 @@ main(saving_folder_name=None, additional_name=args.additional_name, criterion='B
     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
             pred_window=2, observing_window=2, BATCH_SIZE=1400, LR=args.lr, min_frequency=5, hidden_size=128,\
                 drop=0.4, weight_decay=0, num_epochs=1000, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
->>>>>>> 24baafb6fdbf158993ab0463ec2aa5da59737c83
