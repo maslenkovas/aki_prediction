@@ -78,7 +78,7 @@ def get_lr(optimizer):
 ######################################## DATASET ###########################################################
 class MyDataset(Dataset):
 
-    def __init__(self, data_path, tokenizer, max_length=300, names=True, pred_window=2, observing_window=2):
+    def __init__(self, data_path,  tokenizer, labels_df=None, max_length=300, names=True, pred_window=2, observing_window=2):
         # pred_window: number of 12h windows to predict AKI onset
         # observing_window: number of 12h windows to observe
         self.data_path = data_path
@@ -91,6 +91,7 @@ class MyDataset(Dataset):
         self.observing_window = observing_window
         self.pred_window = pred_window
         self.max_length = max_length
+        self.labels_df = labels_df[labels_df.icu_day_id==1]
 
         
     def __len__(self):
@@ -217,20 +218,26 @@ class MyDataset(Dataset):
         demo_diags = ' '.join([demographics, diagnoses])
         demo_diags = self.tokenize(demo_diags, 50)
 
-        # making 24h labels from 12h
-        AKI_1_labels = [int(bool(np.sum(AKI_1_labels_l[i:i+2]))) for i in np.arange(0, self.observing_window + self.pred_window, 2)]
-        AKI_2_labels = [int(bool(np.sum(AKI_2_labels_l[i:i+2]))) for i in np.arange(0, self.observing_window + self.pred_window, 2)]
-        AKI_3_labels = [int(bool(np.sum(AKI_3_labels_l[i:i+2]))) for i in np.arange(0, self.observing_window + self.pred_window, 2)]
-
         #make tensors
         tensor_day_info = torch.tensor(info_l[:self.observing_window//2], dtype=torch.int64)
         tensor_demo_diags = torch.tensor(demo_diags, dtype=torch.int64)
 
-        tensor_labels = torch.tensor([*AKI_1_labels[self.observing_window//2:self.observing_window//2 + self.pred_window//2],\
-                                      *AKI_2_labels[self.observing_window//2:self.observing_window//2 + self.pred_window//2],\
-                                      *AKI_3_labels[self.observing_window//2:self.observing_window//2 + self.pred_window//2] ]  \
-                                        , dtype=torch.float64)
-    
+        if self.labels_df is None:
+            # making 24h labels from 12h
+            AKI_1_labels = [int(bool(np.sum(AKI_1_labels_l[i:i+2]))) for i in np.arange(0, self.observing_window + self.pred_window, 2)]
+            AKI_2_labels = [int(bool(np.sum(AKI_2_labels_l[i:i+2]))) for i in np.arange(0, self.observing_window + self.pred_window, 2)]
+            AKI_3_labels = [int(bool(np.sum(AKI_3_labels_l[i:i+2]))) for i in np.arange(0, self.observing_window + self.pred_window, 2)]
+            
+            tensor_labels = torch.tensor([*AKI_1_labels[self.observing_window//2:self.observing_window//2 + self.pred_window//2],\
+                                        *AKI_2_labels[self.observing_window//2:self.observing_window//2 + self.pred_window//2],\
+                                        *AKI_3_labels[self.observing_window//2:self.observing_window//2 + self.pred_window//2] ]\
+                                            , dtype=torch.float64)
+        else:
+            AKI_1_label = (np.sum(self.labels_df[self.labels_df.stay_id==self.stay_id].AKI_1.values) > 0).astype(int)
+            AKI_2_label = (np.sum(self.labels_df[self.labels_df.stay_id==self.stay_id].AKI_2.values) > 0).astype(int)
+            AKI_3_label = (np.sum(self.labels_df[self.labels_df.stay_id==self.stay_id].AKI_3.values) > 0).astype(int)
+            NO_AKI_label = (np.sum([AKI_1_label, AKI_2_label, AKI_3_label]) == 0).astype(int)
+            tensor_labels = torch.tensor([AKI_1_label, AKI_2_label, AKI_3_label, NO_AKI_label])
 
         return tensor_day_info, tensor_demo_diags, tensor_labels, {'stay_id':self.stay_id, 'day_id':used_day_id_l, 'wind_id':used_wind_id_l}
 
@@ -258,7 +265,7 @@ class EHR_MODEL(nn.Module):
                               bidirectional=True)
 
         self.fc_1 = nn.Linear(2 * self.H * (self.max_length_demo_diags + self.max_length) , 2048)
-        self.fc_2 = nn.Linear(2048, 3)
+        self.fc_2 = nn.Linear(2048, 4)
         self.drop = nn.Dropout(p=self.p)
 
     def forward(self, tensor_day_info, tensor_demo_diags):
@@ -309,8 +316,8 @@ def train(model,
     global_steps_list = []
     stop_training = 0
 
-    activation_fn = nn.Sigmoid()
-    # activation_fn = nn.Softmax()
+    # activation_fn = nn.Sigmoid()
+    activation_fn = nn.Softmax(dim=1)
 
     if criterion == 'BCEWithLogitsLoss':
         criterion = nn.BCEWithLogitsLoss()
@@ -563,24 +570,28 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
         device='cpu'
     print(f'Device: {device}')         
 
-    # CURR_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM'
-    # DF_PATH = CURR_PATH +'/dataframes_2/'
-    # destination_folder = CURR_PATH + '/icu_training/'
-    # TXT_FILES_CODES_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/txt_files/icu_train'
-    # TOKENIZER_CODES_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/aki_prediction/tokenizer_icu_codes.json'
-    # test_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/test_data/'
-    # train_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/train_data/'
-    # val_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/val_data/'
+    CURR_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM'
+    DF_PATH = CURR_PATH +'/dataframes_2/'
+    destination_folder = CURR_PATH + '/icu_training/'
+    TXT_FILES_CODES_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/txt_files/icu_train'
+    TOKENIZER_CODES_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/aki_prediction/tokenizer_icu_codes.json'
+    test_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/test_data/'
+    train_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/train_data/'
+    val_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/val_data/'
+    LABELS_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/pickles_2/aki_stage_labels.pkl'
 
-    CURR_PATH = os.getcwd()
-    DF_PATH = CURR_PATH +'icu_data/dataframes_2/'
-    destination_folder = '/l/users/svetlana.maslenkova/models' + '/icu_models/no_pretraining/'
-    TXT_FILES_CODES_PATH = CURR_PATH + '/aki_prediction/txt_files/icu_train'
-    TOKENIZER_CODES_PATH = CURR_PATH + '/aki_prediction/tokenizer_icu_codes.json'
-    test_data_path = CURR_PATH + '/icu_data/dataframes_2/test_data/'
-    train_data_path = CURR_PATH + '/icu_data/dataframes_2/train_data/'
-    val_data_path = CURR_PATH + '/icu_data/dataframes_2/val_data/'
+    with open(LABELS_PATH, 'rb') as f:
+        aki_stage_labels = pickle.load(f)
 
+    # CURR_PATH = os.getcwd()
+    # DF_PATH = CURR_PATH +'icu_data/dataframes_2/'
+    # destination_folder = '/l/users/svetlana.maslenkova/models' + '/icu_models/no_pretraining/'
+    # TXT_FILES_CODES_PATH = CURR_PATH + '/aki_prediction/txt_files/icu_train'
+    # TOKENIZER_CODES_PATH = CURR_PATH + '/aki_prediction/tokenizer_icu_codes.json'
+    # test_data_path = CURR_PATH + '/icu_data/dataframes_2/test_data/'
+    # train_data_path = CURR_PATH + '/icu_data/dataframes_2/train_data/'
+    # val_data_path = CURR_PATH + '/icu_data/dataframes_2/val_data/'
+    
 
     # Training the tokenizer
     print(f'Current directory: {CURR_PATH}')
@@ -591,13 +602,13 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     vocab_size = tokenizer.get_vocab_size()
     max_length = 350
 
-    train_dataset = MyDataset(data_path=train_data_path, tokenizer=tokenizer, max_length=max_length)
+    train_dataset = MyDataset(data_path=train_data_path, labels_df=aki_stage_labels, tokenizer=tokenizer, max_length=max_length)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    test_dataset = MyDataset(data_path=test_data_path, tokenizer=tokenizer, max_length=max_length)
+    test_dataset = MyDataset(data_path=test_data_path, labels_df=aki_stage_labels, tokenizer=tokenizer, max_length=max_length)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    val_dataset = MyDataset(data_path=val_data_path, tokenizer=tokenizer, max_length=max_length)
+    val_dataset = MyDataset(data_path=val_data_path, labels_df=aki_stage_labels, tokenizer=tokenizer, max_length=max_length)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     if oversampling:
@@ -702,11 +713,12 @@ args, _ = _parse_args()
 
 print(args)
 
-# # test run
-# main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
-#     use_gpu=False, project_name='test', experiment='test', oversampling=False, 
-#             pred_window=2, observing_window=2, BATCH_SIZE=512, LR=0.0001, min_frequency=5, hidden_size=128,\
-#                 drop=0.6, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+# test run
+main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
+    use_gpu=False, project_name='test', experiment='test', oversampling=False, 
+            pred_window=2, observing_window=2, BATCH_SIZE=1500, LR=0.0001, min_frequency=5, hidden_size=128,\
+                drop=0.6, weight_decay=0, num_epochs=1, embedding_size=200,\
+                     wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
 
 
 
@@ -731,9 +743,9 @@ print(args)
 #             wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
 
 
-# 60659, 60661, 60662
-main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
-    use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
-    pred_window=2, observing_window=2, BATCH_SIZE=2000, LR=args.lr, min_frequency=5, hidden_size=128,\
-        drop=args.drop, weight_decay=0, num_epochs=1000, embedding_size=args.embedding_size, dimension = 128, \
-            wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+# # 60659, 60661, 60662
+# main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
+#     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
+#     pred_window=2, observing_window=2, BATCH_SIZE=2000, LR=args.lr, min_frequency=5, hidden_size=128,\
+#         drop=args.drop, weight_decay=0, num_epochs=1000, embedding_size=args.embedding_size, dimension = 128, \
+#             wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
