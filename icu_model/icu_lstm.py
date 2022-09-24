@@ -519,12 +519,9 @@ def evaluate(model, test_loader, threshold=None, log_res=True):
     if threshold==None:
         for w in range(len(stages_names)):
             print('------------- AKI stage ', stages_names[w], '------------- ')
-            if stages_names[w]=='ANY':
-                labels = (np.sum(stacked_labels, axis=1) > 0).astype(int)
-                probs = np.max(stacked_probs, axis=1)
-            else:
-                labels = stacked_labels.T[w]
-                probs = stacked_probs.T[w]            
+            
+            labels = stacked_labels.T[w]
+            probs = stacked_probs.T[w]            
 
             precision, recall, thresholds = precision_recall_curve(labels, probs)
             precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)

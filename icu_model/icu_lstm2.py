@@ -391,15 +391,12 @@ def train(model,
         train_loss_list.append(epoch_average_train_loss)
         valid_loss_list.append(epoch_average_valid_loss)
 
-        stages = ['AKI_1', 'AKI_2', 'AKI_3', 'ANY']
+        stages = ['AKI_1', 'AKI_2', 'AKI_3', 'NO_AKI']
         for w in range(len(stages)):
             stage = stages[w]
-            if stage=='ANY':
-                labels = (np.sum(stacked_labels, axis=1) > 0).astype(int)
-                probs = np.max(stacked_probs, axis=1)
-            else:
-                labels = stacked_labels.T[w]
-                probs = stacked_probs.T[w]    
+
+            labels = stacked_labels.T[w]
+            probs = stacked_probs.T[w]    
 
             precision, recall, thresholds = precision_recall_curve(labels, probs)
             precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
@@ -454,7 +451,7 @@ def train(model,
 
 ######################################## EVALUATION ###########################################################
 
-def evaluate(model, test_loader, threshold=None, log_res=True):
+def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = nn.Softmax(dim=1)):
     print('Evaluation..')
     def find_nearest(array, value):
         array = np.asarray(array)
@@ -478,7 +475,7 @@ def evaluate(model, test_loader, threshold=None, log_res=True):
             tensor_labels = tensor_labels.to(device)
 
             probs = model(tensor_day_info, tensor_demo_diags)
-            probs = nn.Sigmoid()(probs)
+            probs = activation_fn(probs)
             # output = (probs > threshold).int()
 
             # stacking labels and predictions
@@ -495,12 +492,9 @@ def evaluate(model, test_loader, threshold=None, log_res=True):
     if threshold==None:
         for w in range(len(stages_names)):
             print('------------- AKI stage ', stages_names[w], '------------- ')
-            if stages_names[w]=='ANY':
-                labels = (np.sum(stacked_labels, axis=1) > 0).astype(int)
-                probs = np.max(stacked_probs, axis=1)
-            else:
-                labels = stacked_labels.T[w]
-                probs = stacked_probs.T[w]            
+
+            labels = stacked_labels.T[w]
+            probs = stacked_probs.T[w]            
 
             precision, recall, thresholds = precision_recall_curve(labels, probs)
             precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
