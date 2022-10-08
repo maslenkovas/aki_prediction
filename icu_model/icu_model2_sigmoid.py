@@ -74,6 +74,7 @@ def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
+
 ######################################## DATASET ###########################################################
 class MyDataset(Dataset):
 
@@ -90,7 +91,10 @@ class MyDataset(Dataset):
         self.observing_window = observing_window
         self.pred_window = pred_window
         self.max_length = max_length
-        self.labels_df = labels_df[labels_df.icu_day_id==1]
+        if labels_df is not None:
+            self.labels_df = labels_df[labels_df.icu_day_id==1]
+        else:
+            self.labels_df = None
 
         
     def __len__(self):
@@ -240,8 +244,9 @@ class MyDataset(Dataset):
 
         return tensor_day_info, tensor_demo_diags, tensor_labels, {'stay_id':self.stay_id, 'day_id':used_day_id_l, 'wind_id':used_wind_id_l}
 
-###################################################### MODEL ###########################################################
 
+
+###################################################### MODEL ###########################################################
 class EHR_MODEL(nn.Module):
     def __init__(self, max_length, vocab_size, pred_window=2, observing_window=2,  H=128, embedding_size=200, drop=0.6):
         super(EHR_MODEL, self).__init__()
@@ -264,26 +269,27 @@ class EHR_MODEL(nn.Module):
                               bidirectional=True)
 
         self.fc_1 = nn.Linear(2 * self.H * (self.max_length_demo_diags + self.max_length) , 2048)
-        self.fc_2 = nn.Linear(2048, 4)
+        self.fc_2 = nn.Linear(2048, 3)
         self.drop = nn.Dropout(p=self.p)
 
     def forward(self, tensor_day_info, tensor_demo_diags):
 
-        out_emb_demo_diags = self.embedding(tensor_demo_diags) # batch_size x max_length_demographics x embedding_size
-        out_emb_day_info = torch.squeeze(self.embedding(tensor_day_info), 1) # batch_size x max_length_previous_diags x embedding_size
+        out_emb_demo_diags = torch.squeeze(self.embedding(tensor_demo_diags)) # batch_size x max_length_demographics x embedding_size
+        out_emb_day_info = torch.squeeze(self.embedding(tensor_day_info)) # batch_size x max_length_previous_diags x embedding_size
+        # print('out_emb_demo_diags: ', out_emb_demo_diags.size())
+        # print('out_emb_day_info: ', out_emb_day_info.size())
         embedded = torch.cat([out_emb_demo_diags, out_emb_day_info], dim=1)
 
         out_lstm, _ = self.lstm(embedded)
         out_lstm = out_lstm.reshape(out_lstm.size(0), out_lstm.size(1)*out_lstm.size(2))
+        # print('out_lstm', out_lstm.size())
 
         output = self.fc_1(out_lstm)
         output = self.drop(output)
         output = self.fc_2(output)
         output = torch.squeeze(output, 1)
-
+    
         return output
-
-
 
 ###########################################################################################################
 ######################################## TRAIN ###########################################################
@@ -315,8 +321,8 @@ def train(model,
     global_steps_list = []
     stop_training = 0
 
-    # activation_fn = nn.Sigmoid()
-    activation_fn = nn.Softmax(dim=1)
+    activation_fn = nn.Sigmoid()
+    # activation_fn = nn.Softmax(dim=1)
 
     if criterion == 'BCEWithLogitsLoss':
         criterion = nn.BCEWithLogitsLoss()
@@ -335,7 +341,8 @@ def train(model,
             tensor_labels = tensor_labels.to(device)
             tensor_day_info = tensor_day_info.to(device)
             tensor_demo_diags = tensor_demo_diags.to(device)
-            print(f'Step {global_step}/{len(train_loader)}')
+            if global_step % 10 == 0 :
+                print(f'Step {global_step}/{len(train_loader)}')
 
             output = model(tensor_day_info, tensor_demo_diags)
 
@@ -390,14 +397,12 @@ def train(model,
         train_loss_list.append(epoch_average_train_loss)
         valid_loss_list.append(epoch_average_valid_loss)
 
-        stages = ['AKI_1', 'AKI_2', 'AKI_3', 'NO_AKI']
+        stages = ['ANY', '2|3', '3']
         for w in range(len(stages)):
             stage = stages[w]
 
-            labels = stacked_labels.T[w]
-            probs = stacked_probs.T[w]    
 
-            precision, recall, thresholds = precision_recall_curve(labels, probs)
+            precision, recall, thresholds = precision_recall_curve(stacked_labels.T[w], stacked_probs.T[w])
             precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
             
             # convert to f score
@@ -406,8 +411,9 @@ def train(model,
             ix = np.argmax(np.nan_to_num(fscore))
             threshold = np.round(thresholds[ix], 2)
 
-            y_true = labels
-            y_pred = (probs > threshold).astype(int)
+            stacked_preds = (stacked_probs.T[w] > threshold).astype(int)
+            y_true = stacked_labels.T[w]
+            y_pred = stacked_preds
 
             f1_score_ = np.round(f1_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
             recall_score_ = np.round(recall_score(y_true, y_pred, pos_label=1, average='binary', zero_division=0), 2)
@@ -449,8 +455,7 @@ def train(model,
 
 
 ######################################## EVALUATION ###########################################################
-
-def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = nn.Softmax(dim=1)):
+def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = nn.Sigmoid()):
     print('Evaluation..')
     def find_nearest(array, value):
         array = np.asarray(array)
@@ -482,20 +487,17 @@ def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = n
             # stacked_preds = torch.cat([stacked_preds, output], dim=0, )
             stacked_probs = torch.cat([stacked_probs, probs], dim=0, )
             step += 1
-            
+            # if step > 5:break
     # transfer to device
     stacked_labels = stacked_labels.cpu().detach().numpy()
     stacked_probs = stacked_probs.cpu().detach().numpy()
     # for printing purposes
-    stages_names = ['1', '2', '3', 'ANY']
-    if threshold==None:
+    stages_names = ['ANY', '2|3', '3']
+    if threshold is None:
         for w in range(len(stages_names)):
-            print('------------- AKI stage ', stages_names[w], '------------- ')
+            print('------------- Stage ', stages_names[w], '------------- ')
 
-            labels = stacked_labels.T[w]
-            probs = stacked_probs.T[w]            
-
-            precision, recall, thresholds = precision_recall_curve(labels, probs)
+            precision, recall, thresholds = precision_recall_curve(stacked_labels.T[w], stacked_probs.T[w])
             precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
             
             # convert to f score
@@ -506,8 +508,8 @@ def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = n
             threshold = np.round(thresholds[ix], 2)
             print('Best Threshold=%.2f, F-Score=%.2f' % (threshold, fscore[ix]))
 
-            stacked_preds = (probs > threshold).astype(int)
-            y_true = labels
+            stacked_preds = (stacked_probs.T[w] > threshold).astype(int)
+            y_true = stacked_labels.T[w]
             y_pred = stacked_preds
 
             accuracy = np.round(accuracy_score(y_true, y_pred), 2)
@@ -548,7 +550,8 @@ def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = n
                             'test_recall_score'+stages_names[w]:recall_score_, 'test_precision_score'+stages_names[w]:precision_score_, \
                                 'test_specificity'+stages_names[w]:specificity})
 
-    return
+    return stacked_labels, stacked_probs
+
 
 ######################################## MAIN ###########################################################
 def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
@@ -571,10 +574,10 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     test_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/test_data/'
     train_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/train_data/'
     val_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/val_data/'
-    LABELS_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/pickles_2/aki_stage_labels.pkl'
+    # LABELS_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/pickles_2/aki_stage_labels.pkl'
 
-    with open(LABELS_PATH, 'rb') as f:
-        aki_stage_labels = pickle.load(f)
+    # with open(LABELS_PATH, 'rb') as f:
+    #     aki_stage_labels = pickle.load(f)
 
     # CURR_PATH = os.getcwd()
     # DF_PATH = CURR_PATH +'icu_data/dataframes_2/'
@@ -585,7 +588,6 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     # train_data_path = CURR_PATH + '/icu_data/dataframes_2/train_data/'
     # val_data_path = CURR_PATH + '/icu_data/dataframes_2/val_data/'
     
-
     # Training the tokenizer
     print(f'Current directory: {CURR_PATH}')
     if exists(TOKENIZER_CODES_PATH):
@@ -595,13 +597,13 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     vocab_size = tokenizer.get_vocab_size()
     max_length = 350
 
-    train_dataset = MyDataset(data_path=train_data_path, labels_df=aki_stage_labels, tokenizer=tokenizer, max_length=max_length)
+    train_dataset = MyDataset(data_path=train_data_path, labels_df=None, tokenizer=tokenizer, max_length=max_length)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    test_dataset = MyDataset(data_path=test_data_path, labels_df=aki_stage_labels, tokenizer=tokenizer, max_length=max_length)
+    test_dataset = MyDataset(data_path=test_data_path, labels_df=None, tokenizer=tokenizer, max_length=max_length)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    val_dataset = MyDataset(data_path=val_data_path, labels_df=aki_stage_labels, tokenizer=tokenizer, max_length=max_length)
+    val_dataset = MyDataset(data_path=val_data_path, labels_df=None, tokenizer=tokenizer, max_length=max_length)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     if oversampling:
@@ -692,6 +694,9 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     wandb.finish()
 
 
+
+
+
 def _parse_args():
     parser = argparse.ArgumentParser()
 
@@ -706,39 +711,10 @@ args, _ = _parse_args()
 
 print(args)
 
+################################################## RUNs ###############################################
 # test run
-main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
-    use_gpu=False, project_name='test', experiment='test', oversampling=False, 
-            pred_window=2, observing_window=2, BATCH_SIZE=1500, LR=0.0001, min_frequency=5, hidden_size=128,\
-                drop=0.6, weight_decay=0, num_epochs=1, embedding_size=200,\
-                     wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
-
-
-
-# #  60277, 60278, 60280
-# main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
-#     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
-#             pred_window=2, observing_window=2, BATCH_SIZE=1600, LR=args.lr, min_frequency=5, hidden_size=128,\
-#                 drop=0.4, weight_decay=0, num_epochs=1000, embedding_size=200, dimension = 128, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
-
-# #  60287, 60288, 60289
-# main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
-#     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
-#             pred_window=2, observing_window=2, BATCH_SIZE=2000, LR=args.lr, min_frequency=5, hidden_size=128,\
-#                 drop=0.4, weight_decay=0, num_epochs=1000, embedding_size=150, dimension = 128, wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
-
-
-# # 60290, 60291, 60292
-# main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
-#     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
-#     pred_window=2, observing_window=2, BATCH_SIZE=2000, LR=args.lr, min_frequency=5, hidden_size=128,\
-#         drop=args.drop, weight_decay=0, num_epochs=1000, embedding_size=args.embedding_size, dimension = 128, \
-#             wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
-
-
-# # 60659, 60661, 60662
-# main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
-#     use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
-#     pred_window=2, observing_window=2, BATCH_SIZE=2000, LR=args.lr, min_frequency=5, hidden_size=128,\
-#         drop=args.drop, weight_decay=0, num_epochs=1000, embedding_size=args.embedding_size, dimension = 128, \
-#             wandb_mode='online', PRETRAINED_PATH=None, run_id=None)
+main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', \
+    use_gpu=True, project_name='test', experiment='test', oversampling=False,\
+            pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128,\
+                drop=0.6, weight_decay=0, num_epochs=1, embedding_size=200, dimension = 128, wandb_mode='disabled', \
+                    PRETRAINED_PATH=None, run_id=None)
