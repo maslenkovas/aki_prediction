@@ -594,25 +594,25 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
         device='cpu'
     print(f'Device: {device}')         
 
-    CURR_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM'
-    DF_PATH = CURR_PATH +'/dataframes_2/'
-    destination_folder = CURR_PATH + '/icu_training/'
-    TXT_FILES_CODES_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/txt_files/icu_train'
-    TOKENIZER_CODES_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/aki_prediction/tokenizer_icu_codes.json'
-    test_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/test_data/'
-    train_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/train_data/'
-    val_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/val_data/'
-    LABELS_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/pickles_2/aki_stage_labels.pkl'
-
-    # CURR_PATH = os.getcwd()
-    # DF_PATH = CURR_PATH +'icu_data/dataframes_2/'
-    # destination_folder = '/l/users/svetlana.maslenkova/models' + '/icu_models/no_pretraining/'
-    # TXT_FILES_CODES_PATH = CURR_PATH + '/aki_prediction/txt_files/icu_train'
-    # TOKENIZER_CODES_PATH = CURR_PATH + '/aki_prediction/tokenizer_icu_codes.json'
-    # test_data_path = CURR_PATH + '/icu_data/dataframes_2/test_data/'
-    # train_data_path = CURR_PATH + '/icu_data/dataframes_2/train_data/'
-    # val_data_path = CURR_PATH + '/icu_data/dataframes_2/val_data/'
+    # CURR_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM'
+    # DF_PATH = CURR_PATH +'/dataframes_2/'
+    # destination_folder = CURR_PATH + '/icu_training/'
+    # TXT_FILES_CODES_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/txt_files/icu_train'
+    # TOKENIZER_CODES_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/aki_prediction/tokenizer_icu_codes.json'
+    # test_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/test_data/'
+    # train_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/train_data/'
+    # val_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/val_data/'
     # LABELS_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/pickles_2/aki_stage_labels.pkl'
+
+    CURR_PATH = os.getcwd()
+    DF_PATH = CURR_PATH +'icu_data/dataframes_2/'
+    destination_folder = '/l/users/svetlana.maslenkova/models' + '/icu_models/no_pretraining/'
+    TXT_FILES_CODES_PATH = CURR_PATH + '/aki_prediction/txt_files/icu_train'
+    TOKENIZER_CODES_PATH = CURR_PATH + '/aki_prediction/tokenizer_icu_codes.json'
+    test_data_path = CURR_PATH + '/icu_data/dataframes_2/test_data/'
+    train_data_path = CURR_PATH + '/icu_data/dataframes_2/train_data/'
+    val_data_path = CURR_PATH + '/icu_data/dataframes_2/val_data/'
+    LABELS_PATH = '/home/svetlana.maslenkova/LSTM/icu_data/aki_stage_labels.pkl'
 
     with open(LABELS_PATH, 'rb') as f:
         aki_stage_labels = pickle.load(f)
@@ -737,11 +737,11 @@ args, _ = _parse_args()
 
 print(args)
 
-# test run
-main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
-    use_gpu=True, project_name='test', experiment='test', oversampling=False, 
-            pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=5, hidden_size=128,\
-                drop=0.6, embedding_size=200, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+# # test run
+# main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
+#     use_gpu=False, project_name='test', experiment='test', oversampling=False, 
+#             pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=5, hidden_size=128,\
+#                 drop=0.6, embedding_size=200, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
 
 
 # main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
@@ -798,3 +798,13 @@ main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
 #             pred_window=2, observing_window=2, BATCH_SIZE=1600, LR=args.lr, min_frequency=5, hidden_size=128,\
 #                 drop=args.drop, embedding_size=args.embedding_size, weight_decay=0, num_epochs=1000, wandb_mode='online', \
 #                     PRETRAINED_PATH=None, run_id=None)
+
+
+
+###################### NEW LABELS #####################
+# 61237, 61238, 61239
+main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
+    use_gpu=True, project_name='ICU_lstm_model', experiment='no_pretraining', oversampling=False, \
+            pred_window=2, observing_window=2, BATCH_SIZE=1600, LR=args.lr, min_frequency=5, hidden_size=128,\
+                drop=args.drop, embedding_size=args.embedding_size, weight_decay=0, num_epochs=1000, wandb_mode='online', \
+                    PRETRAINED_PATH=None, run_id=None)
