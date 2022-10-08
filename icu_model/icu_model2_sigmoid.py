@@ -557,7 +557,7 @@ def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = n
 def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     use_gpu=True, project_name='test', experiment='test', oversampling=False,\
             pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128,\
-                drop=0.6, weight_decay=0, num_epochs=1, embedding_size=200, dimension = 128, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None):
+                drop=0.6, weight_decay=0, num_epochs=1, embedding_size=200, vocab_size='big', dimension = 128, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None):
 
     # define the device
     if use_gpu:
@@ -704,6 +704,7 @@ def _parse_args():
     parser.add_argument('--lr', type=float, default=0.00001, help="This is the learning rate.")
     parser.add_argument('--drop', type=float, default=0.6, help="This is the dropout probability.")
     parser.add_argument('--embedding_size', type=int, default=200, help="This is the embedding size.")
+    parser.add_argument('--vocab_size', type=str, default='big', help="This is the vocabulary size.")  
 
     return parser.parse_known_args()
 
@@ -723,5 +724,6 @@ print(args)
 main(saving_folder_name=None, additional_name=args.additional_name, criterion='BCELoss', \
     use_gpu=False, project_name='ICU_lstm_sigmoid', experiment='model_2', oversampling=False,\
             pred_window=2, observing_window=2, BATCH_SIZE=1024, LR=args.lr, min_frequency=1, hidden_size=128,\
-                drop=args.drop, weight_decay=0, num_epochs=1000, embedding_size=args.embedding_size, dimension = 128, wandb_mode='online', \
-                    PRETRAINED_PATH=None, run_id=None)
+                drop=args.drop, weight_decay=0, num_epochs=1000, embedding_size=args.embedding_size, \
+                     vocab_size='big', dimension = 128, wandb_mode='online', \
+                        PRETRAINED_PATH=None, run_id=None)

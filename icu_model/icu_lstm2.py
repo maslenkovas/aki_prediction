@@ -699,6 +699,7 @@ def _parse_args():
     parser.add_argument('--lr', type=float, default=0.00001, help="This is the learning rate.")
     parser.add_argument('--drop', type=float, default=0.6, help="This is the dropout probability.")
     parser.add_argument('--embedding_size', type=int, default=200, help="This is the embedding size.")
+    
 
     return parser.parse_known_args()
 
