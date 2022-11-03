@@ -401,7 +401,6 @@ def train(model,
         for w in range(len(stages)):
             stage = stages[w]
 
-
             precision, recall, thresholds = precision_recall_curve(stacked_labels.T[w], stacked_probs.T[w])
             precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
             
