@@ -76,9 +76,10 @@ def get_lr(optimizer):
 
 
 ######################################## DATASET ###########################################################
+max_lengths_dict = {'demographics':30, 'previous_diags_codes':65,'labs_codes':240, 'icu_12h_info_codes':120}
 class MyDataset(Dataset):
 
-    def __init__(self, data_path,  tokenizer, labels_df=None, max_length=300, names=True, pred_window=2, observing_window=2):
+    def __init__(self, data_path, tokenizer, labels_df=None, max_length_dict=max_lengths_dict, names=True, pred_window=2, observing_window=2):
         # pred_window: number of 12h windows to predict AKI onset
         # observing_window: number of 12h windows to observe
         self.data_path = data_path
@@ -90,12 +91,14 @@ class MyDataset(Dataset):
         self.tokenizer = tokenizer
         self.observing_window = observing_window
         self.pred_window = pred_window
-        self.max_length = max_length
+        self.max_length_12h = max_lengths_dict['icu_12h_info_codes']
+        self.max_length_24h = max_lengths_dict['labs_codes']
+        self.max_length_demo = max_lengths_dict['demographics']
+        self.max_length_diags = max_lengths_dict['previous_diags_codes']
         if labels_df is not None:
             self.labels_df = labels_df[labels_df.icu_day_id==1]
         else:
             self.labels_df = None
-
         
     def __len__(self):
         return len(self.data)
@@ -136,7 +139,7 @@ class MyDataset(Dataset):
         df['outputs_codes'] = df['outputs_codes'].fillna('')
         df['medications_names'] = df['medications_names'].fillna('')
         df['medications_codes'] = df['medications_codes'].fillna('')
-        df = df.replace(r';', '', regex=True)
+
         df['AKI_1'] = df['AKI_1'].fillna(0)
         df['AKI_2'] = df['AKI_2'].fillna(0)
         df['AKI_3'] = df['AKI_3'].fillna(0)
@@ -175,8 +178,6 @@ class MyDataset(Dataset):
         AKI_3_labels_l = []
         info_12h_list = []
         info_24h_list = []
-        day_l = []
-        info_l = []
         used_day_id_l = []
         used_wind_id_l = []
 
@@ -190,17 +191,17 @@ class MyDataset(Dataset):
                         AKI_1_labels_l.append(0)
                         AKI_2_labels_l.append(0)
                         AKI_3_labels_l.append(0)
-                        day_l.append('')
+                        info_12h_list.append( self.tokenize('',  self.max_length_12h))
                         if day not in used_day_id_l:
-                            day_l.append('')
+                            info_24h_list.append( self.tokenize('',  self.max_length_24h))
                             used_day_id_l.append(day)
                     else:
                         AKI_1_labels_l.append(self.df[self.df.icu_day_id==day].AKI_1.values[0])
                         AKI_2_labels_l.append(self.df[self.df.icu_day_id==day].AKI_2.values[0])
                         AKI_3_labels_l.append(self.df[self.df.icu_day_id==day].AKI_3.values[0])
-                        day_l.append(self.df[self.df.icu_day_id==day].icu_12h_info_codes.values[0])
+                        info_12h_list.append(self.tokenize(self.df[self.df.icu_day_id==day].icu_12h_info_codes.values[0],  self.max_length_12h))
                         if day not in used_day_id_l:
-                            day_l.append(self.df[self.df.icu_day_id==day].labs_codes.values[0])
+                            info_24h_list.append( self.tokenize(self.df[self.df.icu_day_id==day].labs_codes.values[0],  self.max_length_24h))
                             used_day_id_l.append(day)
                 else:
                     i = list(windows_12h).index(wind)
@@ -208,22 +209,14 @@ class MyDataset(Dataset):
                     AKI_1_labels_l.append(AKI_1_status[i])
                     AKI_2_labels_l.append(AKI_2_status[i])
                     AKI_3_labels_l.append(AKI_3_status[i])
-                    day_l.append(info_12h[i])
+                    info_12h_list.append(self.tokenize(info_12h[i], self.max_length_12h))
                     if day not in used_day_id_l:
-                        day_l.append(info_24h_labs[i])
+                        info_24h_list.append(self.tokenize(info_24h_labs[i], self.max_length_24h))
                         used_day_id_l.append(day)
                 used_wind_id_l.append(wind)
-            day_info = ' '.join(day_l)
-            info_l.append(self.tokenize(day_info, self.max_length))
 
-        demographics = info_demo
-        diagnoses = info_diagnoses
-        demo_diags = ' '.join([demographics, diagnoses])
-        demo_diags = self.tokenize(demo_diags, 50)
-
-        #make tensors
-        tensor_day_info = torch.tensor(info_l[:self.observing_window//2], dtype=torch.int64)
-        tensor_demo_diags = torch.tensor(demo_diags, dtype=torch.int64)
+        demographics = self.tokenize(info_demo, self.max_length_demo)
+        diagnoses = self.tokenize(info_diagnoses, self.max_length_diags)
 
         if self.labels_df is None:
             # making 24h labels from 12h
@@ -239,16 +232,23 @@ class MyDataset(Dataset):
             AKI_1_label = (np.sum(self.labels_df[self.labels_df.stay_id==self.stay_id].AKI_1.values) > 0).astype(int)
             AKI_2_label = (np.sum(self.labels_df[self.labels_df.stay_id==self.stay_id].AKI_2.values) > 0).astype(int)
             AKI_3_label = (np.sum(self.labels_df[self.labels_df.stay_id==self.stay_id].AKI_3.values) > 0).astype(int)
-            NO_AKI_label = (np.sum([AKI_1_label, AKI_2_label, AKI_3_label]) == 0).astype(int)
+            NO_AKI_label = (np.sum(self.labels_df[self.labels_df.stay_id==self.stay_id].NO_AKI.values) > 0).astype(int)
             tensor_labels = torch.tensor([AKI_1_label, AKI_2_label, AKI_3_label, NO_AKI_label])
 
-        return tensor_day_info, tensor_demo_diags, tensor_labels, {'stay_id':self.stay_id, 'day_id':used_day_id_l, 'wind_id':used_wind_id_l}
+        #make tensors
+        tensor_12h_info = torch.tensor(info_12h_list[:self.observing_window], dtype=torch.int64)
+        tensor_24h_labs = torch.tensor(info_24h_list[:self.observing_window//2], dtype=torch.int64)
+        tensor_diagnoses = torch.tensor(diagnoses, dtype=torch.int64)
+        tensor_demographics = torch.tensor(demographics, dtype=torch.int64)
+    
 
+        return tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics, tensor_labels, {'stay_id':self.stay_id, 'day_id':used_day_id_l, 'wind_id':used_wind_id_l}
 
 
 ###################################################### MODEL ###########################################################
+
 class EHR_MODEL(nn.Module):
-    def __init__(self, max_length, vocab_size, pred_window=2, observing_window=2,  H=128, embedding_size=200, drop=0.6):
+    def __init__(self, max_lengths_dict, vocab_size, pred_window=2, observing_window=2,  H=128, embedding_size=200, drop=0.6):
         super(EHR_MODEL, self).__init__()
 
         self.observing_window = observing_window
@@ -257,39 +257,55 @@ class EHR_MODEL(nn.Module):
         self.p = drop
         self.vocab_size = vocab_size
         self.embedding_size = embedding_size
-        self.max_length_demo_diags = 50
-        self.max_length = max_length
-
+        self.max_length_demographics = max_lengths_dict['demographics']
+        self.max_length_previous_diags = max_lengths_dict['previous_diags_codes']
+        self.max_length_labs_24h = max_lengths_dict['labs_codes']
+        self.max_length_icu_12h = max_lengths_dict['icu_12h_info_codes']
         # layers of the network
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
-        self.lstm = nn.LSTM(input_size=self.embedding_size,
+        self.lstm_1 = nn.LSTM(input_size=self.embedding_size,
+                              hidden_size=self.H,
+                              num_layers=1,
+                              batch_first=True,
+                              bidirectional=False)
+
+        self.fc_1 = nn.Linear(self.embedding_size, 256)
+        self.fc_2 = nn.Linear(256* (self.max_length_demographics + self.max_length_previous_diags) + self.H * (self.max_length_labs_24h + self.max_length_icu_12h * 2) , 4096)
+        self.lstm_2 = nn.LSTM(input_size=4096,
                               hidden_size=self.H,
                               num_layers=1,
                               batch_first=True,
                               bidirectional=True)
-
-        self.fc_1 = nn.Linear(2 * self.H * (self.max_length_demo_diags + self.max_length) , 2048)
-        self.fc_2 = nn.Linear(2048, 3)
+        self.fc_3 = nn.Linear(self.H*2, 3)
         self.drop = nn.Dropout(p=self.p)
 
-    def forward(self, tensor_day_info, tensor_demo_diags):
+    def forward(self, tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics):
 
-        out_emb_demo_diags = torch.squeeze(self.embedding(tensor_demo_diags)) # batch_size x max_length_demographics x embedding_size
-        out_emb_day_info = torch.squeeze(self.embedding(tensor_day_info)) # batch_size x max_length_previous_diags x embedding_size
-        # print('out_emb_demo_diags: ', out_emb_demo_diags.size())
-        # print('out_emb_day_info: ', out_emb_day_info.size())
-        embedded = torch.cat([out_emb_demo_diags, out_emb_day_info], dim=1)
+        out_emb_demo = self.embedding(tensor_demographics) # batch_size x max_length_demographics x embedding_size
+        out_emb_diags = self.embedding(tensor_diagnoses) # batch_size x max_length_previous_diags x embedding_size
+        out_emb_24h = self.embedding(tensor_24h_labs.squeeze(1))    # batch_size x max_length_labs_24h x embedding_size
+        out_emb_12h_1 = self.embedding(tensor_12h_info[:,0,:])
+        out_emb_12h_2 = self.embedding(tensor_12h_info[:,1,:])
+        # concatanate and reshape embeddings
+        out_emb_12h = torch.cat([ out_emb_12h_1, out_emb_12h_2], dim=1)
+        out_static = self.fc_1(torch.cat([out_emb_demo, out_emb_diags], dim=1))
+        out_static = out_static.reshape(out_static.size(0), out_static.size(1)*out_static.size(2))
+        # pass 24h information to lstm
+        out_lstm_1_24h, (hn, cn) = self.lstm_1(out_emb_24h)         # batch_size x max_length_labs_24h x H
+        out_lstm_1_24h = out_lstm_1_24h.reshape(out_lstm_1_24h.size(0), out_lstm_1_24h.size(1)*out_lstm_1_24h.size(2))   # batch_size x max_length_labs_24h * H
+        # pass 12h info to lstm
+        out_lstm_1_12h, (hn, cn) = self.lstm_1(out_emb_12h)
+        out_lstm_1_12h = out_lstm_1_12h.reshape(out_lstm_1_12h.size(0), out_lstm_1_12h.size(1)*out_lstm_1_12h.size(2))
 
-        out_lstm, _ = self.lstm(embedded)
-        out_lstm = out_lstm.reshape(out_lstm.size(0), out_lstm.size(1)*out_lstm.size(2))
-        # print('out_lstm', out_lstm.size())
+        full_output = torch.cat([out_static, out_lstm_1_24h, out_lstm_1_12h], dim=1)
+        out_fc_2 = self.fc_2(full_output)
+        out_lstm_2, (hn, cn) = self.lstm_2(out_fc_2)
+        out_lstm_2 = self.drop(out_lstm_2)
+        out_fc_3 = torch.squeeze(self.fc_3(out_lstm_2), 1)
 
-        output = self.fc_1(out_lstm)
-        output = self.drop(output)
-        output = self.fc_2(output)
-        output = torch.squeeze(output, 1)
-    
-        return output
+        return out_fc_3
+
+
 
 ###########################################################################################################
 ######################################## TRAIN ###########################################################
@@ -336,15 +352,17 @@ def train(model,
     for epoch in range(num_epochs):  
 
         model.train()
-        for tensor_day_info, tensor_demo_diags, tensor_labels, _  in train_loader:
+        for tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics, tensor_labels, _  in train_loader:
             # transferring everything to GPU
             tensor_labels = tensor_labels.to(device)
-            tensor_day_info = tensor_day_info.to(device)
-            tensor_demo_diags = tensor_demo_diags.to(device)
+            tensor_12h_info = tensor_12h_info.to(device)
+            tensor_24h_labs = tensor_24h_labs.to(device)
+            tensor_diagnoses = tensor_diagnoses.to(device)
+            tensor_demographics = tensor_demographics.to(device)
             if global_step % 10 == 0 :
                 print(f'Step {global_step}/{len(train_loader)}')
 
-            output = model(tensor_day_info, tensor_demo_diags)
+            output = model(tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics)
 
             if use_sigmoid:
                 loss = criterion(activation_fn(output), tensor_labels.type(torch.float32))
@@ -357,7 +375,8 @@ def train(model,
 
             running_loss += loss.item()            
             global_step += 1
-
+            if global_step%200==0:
+                print(f'Step {global_step}/{len(train_loader)//tensor_labels.size(0)}')
             wandb.log({'step_train_loss': loss.item(), 'global_step': global_step})
             
         if scheduler is not None:
@@ -369,12 +388,14 @@ def train(model,
         stacked_probs = torch.tensor([]).to(device)
         with torch.no_grad():
             # validation loop
-            for tensor_day_info, tensor_demo_diags, tensor_labels,  _  in valid_loader:
+            for tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics, tensor_labels, _  in valid_loader:
                 tensor_labels = tensor_labels.to(device)
-                tensor_day_info = tensor_day_info.to(device)
-                tensor_demo_diags = tensor_demo_diags.to(device)
+                tensor_12h_info = tensor_12h_info.to(device)
+                tensor_24h_labs = tensor_24h_labs.to(device)
+                tensor_diagnoses = tensor_diagnoses.to(device)
+                tensor_demographics = tensor_demographics.to(device)
 
-                output = model(tensor_day_info, tensor_demo_diags)
+                output = model(tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics)
 
                 if use_sigmoid:
                     loss = criterion(activation_fn(output), tensor_labels.type(torch.float32))
@@ -397,9 +418,15 @@ def train(model,
         train_loss_list.append(epoch_average_train_loss)
         valid_loss_list.append(epoch_average_valid_loss)
 
-        stages = ['ANY', '2|3', '3']
+        stages = ['Subtask #1', 'Subtask #2', 'Subtask #3']
         for w in range(len(stages)):
             stage = stages[w]
+            if stage=='ANY':
+                labels = (np.sum(stacked_labels, axis=1) > 0).astype(int)
+                probs = np.max(stacked_probs, axis=1)
+            else:
+                labels = stacked_labels.T[w]
+                probs = stacked_probs.T[w]    
 
             precision, recall, thresholds = precision_recall_curve(stacked_labels.T[w], stacked_probs.T[w])
             precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
@@ -454,6 +481,7 @@ def train(model,
 
 
 ######################################## EVALUATION ###########################################################
+
 def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = nn.Sigmoid()):
     print('Evaluation..')
     def find_nearest(array, value):
@@ -469,16 +497,18 @@ def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = n
     model.eval()
     step = 1
     with torch.no_grad():
-        for  tensor_day_info, tensor_demo_diags,  tensor_labels, _  in test_loader:
+        for  tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics, tensor_labels, _  in test_loader:
             if step % 100==0:
                 print(f'Step {step}/{len(test_loader)}' )
 
-            tensor_day_info = tensor_day_info.to(device)
-            tensor_demo_diags = tensor_demo_diags.to(device)
+            tensor_12h_info = tensor_12h_info.to(device)
+            tensor_24h_labs = tensor_24h_labs.to(device)
+            tensor_diagnoses = tensor_diagnoses.to(device)
+            tensor_demographics = tensor_demographics.to(device)
             tensor_labels = tensor_labels.to(device)
 
-            probs = model(tensor_day_info, tensor_demo_diags)
-            probs = activation_fn(probs)
+            probs = model(tensor_12h_info, tensor_24h_labs, tensor_diagnoses, tensor_demographics)
+            probs = nn.Sigmoid()(probs)
             # output = (probs > threshold).int()
 
             # stacking labels and predictions
@@ -486,16 +516,16 @@ def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = n
             # stacked_preds = torch.cat([stacked_preds, output], dim=0, )
             stacked_probs = torch.cat([stacked_probs, probs], dim=0, )
             step += 1
-            # if step > 5:break
+            
     # transfer to device
     stacked_labels = stacked_labels.cpu().detach().numpy()
     stacked_probs = stacked_probs.cpu().detach().numpy()
     # for printing purposes
-    stages_names = ['ANY', '2|3', '3']
-    if threshold is None:
+    stages_names = ['Subtask #1', 'Subtask #2', 'Subtask #3']
+    if threshold==None:
         for w in range(len(stages_names)):
-            print('------------- Stage ', stages_names[w], '------------- ')
-
+            print('-------------', stages_names[w], '------------- ')
+            
             precision, recall, thresholds = precision_recall_curve(stacked_labels.T[w], stacked_probs.T[w])
             precision, recall, thresholds = np.round(precision, 2), np.round(recall,2), np.round(thresholds,2)
             
@@ -549,14 +579,13 @@ def evaluate(model, test_loader, threshold=None, log_res=True, activation_fn = n
                             'test_recall_score'+stages_names[w]:recall_score_, 'test_precision_score'+stages_names[w]:precision_score_, \
                                 'test_specificity'+stages_names[w]:specificity})
 
-    return stacked_labels, stacked_probs
-
+    return
 
 ######################################## MAIN ###########################################################
 def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     use_gpu=True, project_name='test', experiment='test', oversampling=False,\
             pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128,\
-                drop=0.6, weight_decay=0, num_epochs=1, embedding_size=200, dimension = 128, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None):
+                drop=0.6, embedding_size=200, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None):
 
     # define the device
     if use_gpu:
@@ -575,9 +604,6 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     val_data_path ='/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/dataframes_2/val_data/'
     # LABELS_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/pickles_2/aki_stage_labels.pkl'
 
-    # with open(LABELS_PATH, 'rb') as f:
-    #     aki_stage_labels = pickle.load(f)
-
     # CURR_PATH = os.getcwd()
     # DF_PATH = CURR_PATH +'icu_data/dataframes_2/'
     # destination_folder = '/l/users/svetlana.maslenkova/models' + '/icu_models/no_pretraining/'
@@ -586,24 +612,29 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     # test_data_path = CURR_PATH + '/icu_data/dataframes_2/test_data/'
     # train_data_path = CURR_PATH + '/icu_data/dataframes_2/train_data/'
     # val_data_path = CURR_PATH + '/icu_data/dataframes_2/val_data/'
-    
+    # LABELS_PATH = '/home/svetlanamaslenkova/Documents/AKI_deep/LSTM/pickles_2/aki_stage_labels.pkl'
+
+    # with open(LABELS_PATH, 'rb') as f:
+    #     aki_stage_labels = pickle.load(f)
+
+
     # Training the tokenizer
-    print(f'Current directory: {CURR_PATH}')
     if exists(TOKENIZER_CODES_PATH):
         tokenizer = Tokenizer.from_file(TOKENIZER_CODES_PATH)
         print(f'Tokenizer is loaded from ==> {TOKENIZER_CODES_PATH}/tokenizer.json. Vocab size is {tokenizer.get_vocab_size()}')
 
+    max_lengths_dict = {'demographics':30, 'previous_diags_codes':65, 'labs_codes':240, 'icu_12h_info_codes':120}
     vocab_size = tokenizer.get_vocab_size()
-    max_length = 350
+    dimension = 128
 
-    train_dataset = MyDataset(data_path=train_data_path, labels_df=None, tokenizer=tokenizer, max_length=max_length)
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-
-    test_dataset = MyDataset(data_path=test_data_path, labels_df=None, tokenizer=tokenizer, max_length=max_length)
+    test_dataset = MyDataset(data_path=test_data_path, labels_df=None, tokenizer=tokenizer, max_length_dict=max_lengths_dict)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    val_dataset = MyDataset(data_path=val_data_path, labels_df=None, tokenizer=tokenizer, max_length=max_length)
+    val_dataset = MyDataset(data_path=val_data_path, labels_df=None, tokenizer=tokenizer, max_length_dict=max_lengths_dict)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+    train_dataset = MyDataset(data_path=train_data_path, labels_df=None, tokenizer=tokenizer, max_length_dict=max_lengths_dict)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     if oversampling:
         i = 0
@@ -625,7 +656,7 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
 
         train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, num_workers=1, sampler=sampler)
 
-    model = EHR_MODEL(max_length=max_length, vocab_size=vocab_size).to(device)
+    model = EHR_MODEL(max_lengths_dict, vocab_size=tokenizer.get_vocab_size()).to(device)
     optimizer = optim.Adam(model.parameters(), lr=LR)
 
     if PRETRAINED_PATH is not None:
@@ -652,10 +683,9 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     weights = ''
     # path for the model
     if saving_folder_name is None:
-        saving_folder_name = additional_name + '_M2_' + 'ICU_' + experiment + '_' + str(len(train_dataset) // 1000) + 'k_'  \
+        saving_folder_name = additional_name + '_ICU_' + experiment + '_' + str(len(train_dataset) // 1000) + 'k_'  \
             + 'lr' + str(LR) + '_h'+ str(hidden_size) + '_pw' + str(pred_window) + '_ow' + str(observing_window) \
-                + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop) + '_emb' + str(embedding_size) + '_vocab' + str(vocab_size)
-                
+                + '_wd' + str(weight_decay) + '_'+ weights + '_drop' + str(drop) + '_emb' + str(embedding_size) + '_vocab' + str(vocab_size)\
 
     
     file_path = destination_folder + saving_folder_name
@@ -674,7 +704,7 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
         resume = 'must'
 
     args = {'optimizer':'Adam', 'criterion':'BCELoss', 'LR':LR, 'min_frequency':min_frequency, 'hidden_size':hidden_size, \
-            'pred_window':pred_window, 'experiment':experiment,'weight_decay':weight_decay, 'drop':drop, 'embedding_size':embedding_size, \
+            'pred_window':pred_window, 'experiment':experiment,'weight_decay':weight_decay, 'drop':drop, 'embedding_size':embedding_size,\
                 'vocab_size':vocab_size}
 
     wandb.init(project=project_name, name=run_name, mode=wandb_mode, config=args, id=run_id, resume=resume)
@@ -693,9 +723,6 @@ def main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
     wandb.finish()
 
 
-
-
-
 def _parse_args():
     parser = argparse.ArgumentParser()
 
@@ -710,10 +737,9 @@ args, _ = _parse_args()
 
 print(args)
 
-################################################## RUNs ###############################################
 # test run
-main(saving_folder_name='test_model', additional_name='', criterion='BCELoss', \
-    use_gpu=True, project_name='test', experiment='test', oversampling=False,\
-            pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=1, hidden_size=128,\
-                drop=0.6, weight_decay=0, num_epochs=1, embedding_size=200, dimension = 128, wandb_mode='disabled', \
-                    PRETRAINED_PATH=None, run_id=None)
+main(saving_folder_name=None, additional_name='', criterion='BCELoss', \
+    use_gpu=True, project_name='test', experiment='test', oversampling=False, 
+            pred_window=2, observing_window=2, BATCH_SIZE=128, LR=0.0001, min_frequency=5, hidden_size=128,\
+                drop=0.6, embedding_size=200, weight_decay=0, num_epochs=1, wandb_mode='disabled', PRETRAINED_PATH=None, run_id=None)
+
