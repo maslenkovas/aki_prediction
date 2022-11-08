@@ -8,4 +8,4 @@ The database is publicly available on [Physionet MIMIC-IV](https://physionet.org
 - File Cohort_analysis.ipynb contains initial analyses of the data used to train the model. 
 - File icu_xgb.ipynb is used to train and evaluate XGBoost AKI prediction model. Preprocessing pipeline for XGBoost is located in the icu_preprocessing.ipynb file.
 
-Please let me know if you have any questions by email: maslenkova.lana@gmail.com
+Please let me know if you have any questions by the folloving email: maslenkova.lana@gmail.com
