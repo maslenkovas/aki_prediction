@@ -13,10 +13,10 @@ the variety of data available for each patient, it is challenging to assess whic
 could be the best predictor. Thus, the text classification model used unstructured textual
 data to make predictions.
 
-![Alt text](aki_prediction/images/Architechture.jpg?raw=true "Title")
+![Alt text](aki_prediction/images/Architechture.jpg?raw=true "Title" | width=100)
 
 ## Files description
-The database is publicly available on [Physionet MIMIC-IV](https://physionet.org/content/mimiciv/2.0/ | width=100) page.
+The database is publicly available on [Physionet MIMIC-IV](https://physionet.org/content/mimiciv/2.0/) page.
 
 - File icu_preprocessing.ipynb is used to preproccess the data into the format suitable for the model.
 - File icu_lstm_sigmoid.py contains all functions and modules for training and evaluating the model.
