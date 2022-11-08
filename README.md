@@ -11,10 +11,42 @@ In addition to the classical machine learning approach called The extreme gradie
 we have also explored an LSTM-based approach applied to the prediction of AKI. Due to
 the variety of data available for each patient, it is challenging to assess which information
 could be the best predictor. Thus, the text classification model used unstructured textual
-data to make predictions.
+data to make predictions. 
 
-<!-- ![Alt text](images/Architechture.jpg?raw=true "Title")
-<img src="images/Architechture.jpg" width="48">
+### Data preprocessing
+Before being passed to the model the data should be preprocessed in the certain way. The input data are combined into four blocks:
+- demographics (which includes both: demographic information and semi-static body
+measurements);
+- previous diagnoses;
+- laboratory test results taken during the first 24h in the ICU;
+- vital signs, urine output volume recorded during two 12h windows and medications
+prescribed during the same two 12h windows from the time of transferring to the
+ICU.
+
+The code for preprocessing is stored in this repository. The example of the input data is shown below:
+
+<p align="center">
+  <img src="images/input_data.jpg" width="500" height="200">
+</p>
+ 
+### Architecture of the model
+Every number in the text was enclosed in brackets in order to pass the sense of the start
+and the end of the numerical information to the model. Each of these blocks is converted
+into a tensor and then tokenized using Byte-Pair Encoding (BPE) technique. For each of
+the tensors, we define the maximum length in tokens. Thus, if an input text is tokenized
+into more tokens than the maximum length, we truncate it. On the other hand, if the
+text input has fewer tokens than the maximum length, we pad the sequence with special
+token ’PAD’. Each tokenized block has a special token at the beginning and end of the
+text (before the padding tokens).
+
+Then, we concatenated the static information blocks - demographics and previous diagnoses. Each resulting tokenized vector is passed to an embedding layer to get the representations of the input text. The representations of the static information are passed toa fully-connected layer, while the representations of the continuous information are passed to the LSTM layer. After that, the outputs of both layers are concatenated and passed to the other fully-connected layer. Then the output is passed to the bidirectional LSTM layer. Finally, the dropout is applied to the output from the LSTM layer, and then the resulting tensor is passed through another fully-connected layer with three output nodes. Then, the sigmoid activation function is applied to the model’s output. 
+
+The architecture of the model is shown below:
+<p align="center">
+  <img src="images/Architechture.jpg" width="280" height="500">
+</p>
+
+The model was able to achieve the sensitivity of 57% and the precision of 29%, which corresponds to 2.5 false positive predictions for each true positive.
 
 ## Files description
 The database is publicly available on [Physionet MIMIC-IV](https://physionet.org/content/mimiciv/2.0/) page.
