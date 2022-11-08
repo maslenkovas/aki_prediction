@@ -3,7 +3,7 @@ The deep learning model for predicting Acute Kidney Injury (AKI) in ICU patients
 
 ## Project description
 Acute Kidney Injury (AKI) affects more than 13 million people annually and increases
-the risk of death in patients[26]. The severity of AKI also contributes to the increase
+the risk of death in patients. The severity of AKI also contributes to the increase
 in associated costs of a patient’s treatment. The early prediction of AKI could enable
 clinicians to focus on preventive treatment for at-risk patients.
 
