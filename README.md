@@ -57,4 +57,21 @@ The database is publicly available on [Physionet MIMIC-IV](https://physionet.org
 - File icu_xgb.ipynb is used to train and evaluate XGBoost AKI prediction model. Preprocessing pipeline for XGBoost is located in the icu_preprocessing.ipynb file.
 - File tokenizer.json is a trained tokenizer used in the model training.
 
+## Used packages
+- torch==1.11.0
+- xgboost==1.5.2
+- matplotlib==3.5.1
+- seaborn==0.11.2
+- numpy==1.21.6
+- pandas==1.3.5
+- tokenizers==0.12.1
+- lime==0.2.0.1
+- sklearn==1.0.2
+- imblearn==0.9.0
+- wandb==0.12.11
+- pickle5==0.0.12
+- re==2.2.1
+- tqdm==4.64.0
+- pip==22.1.2
+
 Please let me know if you have any questions by the folloving email: maslenkova.lana@gmail.com
