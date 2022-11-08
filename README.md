@@ -13,6 +13,9 @@ the variety of data available for each patient, it is challenging to assess whic
 could be the best predictor. Thus, the text classification model used unstructured textual
 data to make predictions.
 
+<!-- ![Alt text](images/Architechture.jpg?raw=true "Title")
+<img src="images/Architechture.jpg" width="48">
+
 ## Files description
 The database is publicly available on [Physionet MIMIC-IV](https://physionet.org/content/mimiciv/2.0/) page.
 
