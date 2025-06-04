@@ -1,5 +1,7 @@
 # Prediction of Acute Kidney Injury using Electronic Health Records.
 The deep learning model for predicting Acute Kidney Injury (AKI) in ICU patients from Electronic Health Records (EHR) database MIMIC IV v2.0.
+This is a repository containing code for Master's Thesis project in MBZUAI. Link to the manuscript: [Predicting of Acute Kidney Injury
+using Electronic Health Records - Master's Thesis](https://staticcdn.mbzuai.ac.ae/mbzuaiwpprd01/2022/12/SvetlanaMaslenkova_MScThesis_fall2022.pdf)
 
 ## Project description
 Acute Kidney Injury (AKI) affects more than 13 million people annually and increases
